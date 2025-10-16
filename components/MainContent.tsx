@@ -445,10 +445,12 @@ const CreateNotebookModal: React.FC<{
         setIsLoading(true);
         setStatusMessage("Coletando questões...");
         try {
+            const allAvailableSources = appData.sources.filter(s => s.questions && s.questions.length > 0);
+            
             // 1. Get questions from selected sources (or all)
             const sourcesToUse = selectedSourceIds.size > 0
-                ? appData.sources.filter(s => selectedSourceIds.has(s.id))
-                : appData.sources;
+                ? allAvailableSources.filter(s => selectedSourceIds.has(s.id))
+                : allAvailableSources;
             
             let questionsPool = sourcesToUse.flatMap(s => s.questions);
 
@@ -538,7 +540,7 @@ const CreateNotebookModal: React.FC<{
                  <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Fontes (opcional, todas por padrão)</label>
                     <div className="max-h-40 overflow-y-auto border border-border-light dark:border-border-dark rounded-md p-2 space-y-1">
-                       {appData.sources.map(source => (
+                       {appData.sources.filter(s => s.questions && s.questions.length > 0).map(source => (
                             <div key={source.id} className="flex items-center gap-2 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <input type="checkbox" id={`source-select-${source.id}`} checked={selectedSourceIds.has(source.id)} onChange={() => handleToggleSource(source.id)}
                                     className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
@@ -1257,18 +1259,21 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
     
     const renderItems = (items: any[]) => (
          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {items.map(card => (
+            {items.map(card => {
+                 const author = appData.users.find(u => u.id === card.source?.user_id);
+                 const authorName = author ? author.pseudonym : 'Desconhecido';
+                 return (
                  <div id={`flashcard-${card.id}`} key={card.id} className="[perspective:1000px] min-h-64 group flex flex-col">
                     <div className={`relative w-full flex-grow [transform-style:preserve-3d] transition-transform duration-700 ${flipped === card.id ? '[transform:rotateY(180deg)]' : ''}`} onClick={() => handleFlip(card.id)}>
                         <div className="absolute w-full h-full [backface-visibility:hidden] flex flex-col justify-between p-6 bg-card-light dark:bg-card-dark rounded-t-lg shadow-md border border-b-0 border-border-light dark:border-border-dark cursor-pointer">
                             <div>
-                                <p className="text-xs text-gray-500">{card.source?.materia} - {card.source?.topic}</p>
-                                <p className="text-base md:text-lg font-semibold text-center mt-4 flex-grow flex items-center justify-center">{card.front}</p>
+                                <p className="text-xs text-gray-500">Criado por {authorName}</p>
+                                <p className="text-lg md:text-xl font-semibold text-center mt-4 flex-grow flex items-center justify-center">{card.front}</p>
                             </div>
                             <div className="text-center text-xs text-gray-400">Clique para virar</div>
                         </div>
                         <div className="absolute w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col justify-center p-6 bg-primary-light dark:bg-primary-dark text-white rounded-t-lg shadow-md cursor-pointer">
-                            <p className="text-base md:text-lg text-center">{card.back}</p>
+                            <p className="text-lg md:text-xl text-center">{card.back}</p>
                         </div>
                     </div>
                     <div className="bg-background-light dark:bg-background-dark p-2 rounded-b-lg border border-t-0 border-border-light dark:border-border-dark">
@@ -1281,7 +1286,7 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
                         />
                     </div>
                 </div>
-            ))}
+            )})}
         </div>
     );
 
@@ -2093,10 +2098,16 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
         }
     };
     
-    const renderItem = (audio: AudioSummary & { user_id: string, created_at: string}) => (
+    const renderItem = (audio: AudioSummary & { user_id: string, created_at: string}) => {
+        const author = appData.users.find(u => u.id === audio.source?.user_id);
+        const authorName = author ? author.pseudonym : 'Edmercio';
+        const createdAt = new Date(audio.source?.created_at || Date.now());
+        const formattedDate = `${createdAt.toLocaleDateString('pt-BR')} ${createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+        
+        return (
         <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
             <h3 className="text-xl font-bold mb-2">{audio.title}</h3>
-            <p className="text-xs text-gray-500 mb-4">{audio.source?.topic}</p>
+            <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
             {audio.audioUrl.toLowerCase().endsWith('.mp4') ? (
                 <video controls className="w-full rounded-md max-h-72">
                     <source src={audio.audioUrl} type="video/mp4" />
@@ -2116,7 +2127,7 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
                 onComment={() => setCommentingOn(audio)}
             />
         </div>
-    );
+    )};
     
     return(
         <>
