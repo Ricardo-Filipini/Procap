@@ -243,9 +243,24 @@ const ContentToolbar: React.FC<{
             <div className="flex flex-wrap items-center justify-between gap-4 text-sm">
                 <div className="flex items-center gap-4">
                     <span className="font-semibold">Ordenar por:</span>
-                    <div className="flex items-center gap-2">
-                        {availableSorts.map(s => (
-                             <button key={s.key} onClick={() => setSort(s.key)} title={s.title} className={`p-2 rounded-full ${sort === s.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{s.icon}</button>
+                    <div className="flex items-center gap-0">
+                         {availableSorts.map(s => (
+                            <div key={s.key} className="flex flex-col items-center justify-start h-10 w-10">
+                                <button 
+                                    onClick={() => setSort(s.key)} 
+                                    title={s.title} 
+                                    className={`p-1.5 rounded-full transition-colors ${sort === s.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                >
+                                    <span className="text-xl">{s.icon}</span>
+                                </button>
+                                <div className="h-4 mt-1">
+                                    {sort === s.key && (
+                                        <span className="text-xs font-semibold text-primary-light dark:text-primary-dark whitespace-nowrap">
+                                            {s.title}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -1248,12 +1263,12 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
                         <div className="absolute w-full h-full [backface-visibility:hidden] flex flex-col justify-between p-6 bg-card-light dark:bg-card-dark rounded-t-lg shadow-md border border-b-0 border-border-light dark:border-border-dark cursor-pointer">
                             <div>
                                 <p className="text-xs text-gray-500">{card.source?.materia} - {card.source?.topic}</p>
-                                <p className="text-lg font-semibold text-center mt-4 flex-grow flex items-center justify-center">{card.front}</p>
+                                <p className="text-base md:text-lg font-semibold text-center mt-4 flex-grow flex items-center justify-center">{card.front}</p>
                             </div>
                             <div className="text-center text-xs text-gray-400">Clique para virar</div>
                         </div>
                         <div className="absolute w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col justify-center p-6 bg-primary-light dark:bg-primary-dark text-white rounded-t-lg shadow-md cursor-pointer">
-                            <p className="text-lg text-center">{card.back}</p>
+                            <p className="text-base md:text-lg text-center">{card.back}</p>
                         </div>
                     </div>
                     <div className="bg-background-light dark:bg-background-dark p-2 rounded-b-lg border border-t-0 border-border-light dark:border-border-dark">
@@ -2139,10 +2154,10 @@ const CommunityView: React.FC<{ appData: AppData, currentUser: User, setAppData:
     const sortedUsers = [...appData.users].sort((a, b) => b.xp - a.xp);
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-1">
-                <h3 className="text-2xl font-bold mb-4">Leaderboard</h3>
-                <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-11rem)]">
+            <div className="lg:col-span-1 flex flex-col">
+                <h3 className="text-2xl font-bold mb-4 flex-shrink-0">Leaderboard</h3>
+                <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto max-h-64 lg:max-h-full">
                     <ul className="space-y-3">
                         {sortedUsers.map((user, index) => (
                             <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
@@ -2359,7 +2374,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
 
 
     return (
-         <div className="flex flex-col h-[70vh] bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark">
+         <div className="flex flex-col h-full bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark">
             <div className="flex justify-between items-center p-4 border-b border-border-light dark:border-border-dark">
                 <h3 className="text-2xl font-bold">Chat Geral</h3>
                 <div className="flex items-center gap-2">
