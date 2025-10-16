@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeView, setAc
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                 } ${isCollapsed ? 'justify-center' : ''}`}
               >
-                <view.icon className="w-6 h-6" />
+                <view.icon className={`transition-all duration-300 ${isCollapsed ? 'w-7 h-7' : 'w-6 h-6'}`} />
                 {!isCollapsed && <span className="ml-4 font-medium">{view.name}</span>}
               </button>
             </li>
@@ -50,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeView, setAc
           <button 
             onClick={onLogout}
             className={`w-full flex items-center p-2 rounded-md transition-colors duration-200 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 ${isCollapsed ? 'justify-center' : ''}`}>
-              <ArrowLeftOnRectangleIcon className="w-6 h-6"/>
+              <ArrowLeftOnRectangleIcon className={`transition-all duration-300 ${isCollapsed ? 'w-7 h-7' : 'w-6 h-6'}`}/>
               {!isCollapsed && <span className="ml-4 font-medium">Sair</span>}
           </button>
       </div>
