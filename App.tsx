@@ -25,15 +25,15 @@ const App: React.FC = () => {
       try {
         const data = await getInitialData();
         setAppData(data);
-        // Restore user session if available
-        const savedUser = sessionStorage.getItem('procap_currentUser');
-        if (savedUser) {
-          const parsedUser: User = JSON.parse(savedUser);
-          // Verify user exists in fresh data
-          if (data.users.some(u => u.id === parsedUser.id)) {
-            setCurrentUser(parsedUser);
+        // Restore user session if available from localStorage
+        const savedUserId = localStorage.getItem('procap_lastUserId');
+        if (savedUserId) {
+          const userToLogin = data.users.find(u => u.id === savedUserId);
+          if (userToLogin) {
+            setCurrentUser(userToLogin);
           } else {
-            sessionStorage.removeItem('procap_currentUser');
+            // Clear invalid ID if user is not found
+            localStorage.removeItem('procap_lastUserId');
           }
         }
       } catch (error) {
@@ -45,15 +45,6 @@ const App: React.FC = () => {
     };
     fetchData();
   }, []);
-  
-  // Persist currentUser to sessionStorage for better UX on page refresh
-  useEffect(() => {
-    if (currentUser) {
-        sessionStorage.setItem('procap_currentUser', JSON.stringify(currentUser));
-    } else {
-        sessionStorage.removeItem('procap_currentUser');
-    }
-  }, [currentUser]);
   
   const addXpToast = (amount: number) => {
     const newToast = { id: Date.now(), amount };
@@ -95,6 +86,7 @@ const App: React.FC = () => {
             stats: { questionsAnswered: 0, correctAnswers: 0, topicPerformance: {}, streak: 0 }
         };
         setCurrentUser(adminUser);
+        localStorage.setItem('procap_lastUserId', adminUser.id);
         return null; // Success
     }
 
@@ -108,6 +100,7 @@ const App: React.FC = () => {
         // User exists, check password for login
         if (existingUser.password === password) {
             setCurrentUser(existingUser);
+            localStorage.setItem('procap_lastUserId', existingUser.id);
             return null; // Success
         } else {
             return "Falha no login. Este pseudônimo pode já estar em uso com uma senha diferente, ou a senha digitada está incorreta.";
@@ -130,6 +123,7 @@ const App: React.FC = () => {
         } else if (newUser) {
           setAppData(prev => ({ ...prev, users: [...prev.users, newUser] }));
           setCurrentUser(newUser);
+          localStorage.setItem('procap_lastUserId', newUser.id);
           return null; // Success
         } else {
           return "Ocorreu um erro durante o cadastro. Tente novamente.";
@@ -139,6 +133,7 @@ const App: React.FC = () => {
   
   const handleLogout = () => {
       setCurrentUser(null);
+      localStorage.removeItem('procap_lastUserId');
       setActiveView(communityView);
   };
   
@@ -180,7 +175,7 @@ const App: React.FC = () => {
       />
       <main
         className={`flex-1 overflow-y-auto p-4 md:p-8 transition-all duration-300 ${
-          isSidebarCollapsed ? 'ml-16' : 'ml-64'
+          isSidebarCollapsed ? 'ml-14' : 'ml-64'
         }`}
       >
         <MainContent 
