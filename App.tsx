@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
 import { Theme, User, AppData, View } from './types';
@@ -14,6 +14,8 @@ const App: React.FC = () => {
   const [appData, setAppData] = useState<AppData>(INITIAL_APP_DATA);
   const [isLoading, setIsLoading] = useState(true);
   const [processingTasks, setProcessingTasks] = useState<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>([]);
+  const [xpToasts, setXpToasts] = useState<{ id: number; amount: number }[]>([]);
+  const prevXpRef = useRef(currentUser?.xp);
 
 
   // Load all data from Supabase on initial load
@@ -52,6 +54,25 @@ const App: React.FC = () => {
         sessionStorage.removeItem('procap_currentUser');
     }
   }, [currentUser]);
+  
+  const addXpToast = (amount: number) => {
+    const newToast = { id: Date.now(), amount };
+    setXpToasts(prev => [...prev, newToast]);
+    setTimeout(() => {
+        setXpToasts(prev => prev.filter(t => t.id !== newToast.id));
+    }, 4000); // Toast disappears after 4 seconds
+  };
+  
+  useEffect(() => {
+      const currentXp = currentUser?.xp;
+      const prevXp = prevXpRef.current;
+      if (typeof currentXp === 'number' && typeof prevXp === 'number' && currentXp > prevXp) {
+          const amountGained = currentXp - prevXp;
+          addXpToast(amountGained);
+      }
+      prevXpRef.current = currentXp;
+  }, [currentUser?.xp]);
+
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -71,7 +92,7 @@ const App: React.FC = () => {
             level: 99,
             xp: 9999,
             achievements: ['Acesso Total'],
-            stats: { questionsAnswered: 0, correctAnswers: 0, topicPerformance: {} }
+            stats: { questionsAnswered: 0, correctAnswers: 0, topicPerformance: {}, streak: 0 }
         };
         setCurrentUser(adminUser);
         return null; // Success
@@ -99,7 +120,7 @@ const App: React.FC = () => {
             level: 1,
             xp: 0,
             achievements: [],
-            stats: { questionsAnswered: 0, correctAnswers: 0, topicPerformance: {} }
+            stats: { questionsAnswered: 0, correctAnswers: 0, topicPerformance: {}, streak: 0 }
         };
         
         const { user: newUser, error: creationError } = await createUser(newUserPayload);
@@ -175,6 +196,18 @@ const App: React.FC = () => {
           setProcessingTasks={setProcessingTasks}
         />
       </main>
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        {xpToasts.map(toast => (
+          <div
+            key={toast.id}
+            onClick={() => setXpToasts(prev => prev.filter(t => t.id !== toast.id))}
+            className="bg-green-500 text-white font-bold py-2 px-4 rounded-full shadow-lg cursor-pointer animate-fade-in-up"
+            style={{ minWidth: `${60 + toast.amount * 2}px`, minHeight: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            +{toast.amount} XP
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

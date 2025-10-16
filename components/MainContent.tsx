@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Theme, View, AppData, User, Summary, Flashcard, Question, ChatMessage, Comment, Source, AudioSummary, MindMap, UserMessageVote, UserSourceVote, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../types';
-import { VIEWS } from '../constants';
+import { VIEWS, ACHIEVEMENTS } from '../constants';
 // Fix: Import Bars3Icon.
-import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, ClockIcon, PlusIcon, MinusIcon, PaperClipIcon, GoogleIcon, CloudArrowUpIcon, BookOpenIcon, PencilIcon, FireIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, FunnelIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, Squares2X2Icon, Bars3Icon, QuestionMarkCircleIcon, ShareIcon, SpeakerWaveIcon, CheckCircleIcon } from './Icons';
+import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, ClockIcon, PlusIcon, MinusIcon, PaperClipIcon, GoogleIcon, CloudArrowUpIcon, BookOpenIcon, PencilIcon, FireIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, FunnelIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, Squares2X2Icon, Bars3Icon, QuestionMarkCircleIcon, ShareIcon, SpeakerWaveIcon, CheckCircleIcon, Cog6ToothIcon } from './Icons';
 import { getSimpleChatResponse, getPersonalizedStudyPlan, processAndGenerateAllContentFromSource, generateImageForMindMap, filterItemsByPrompt, generateSpecificContent, generateNotebookName, generateMoreContentFromSource, generateContentFromPromptAndSources } from '../services/geminiService';
 // Fix: Import addCommentToContent from supabaseClient.
 import { addChatMessage, supabase, addSource, addGeneratedContent, addSourceComment, updateSource, deleteSource, upsertUserContentInteraction, incrementContentVote, upsertUserVote, incrementVoteCount, addQuestionNotebook, updateQuestionNotebook, deleteQuestionNotebook, addNotebookComment, upsertUserQuestionAnswer, addCommentToContent, clearNotebookAnswers, updateContentComments, updateUser as supabaseUpdateUser, addAudioSummary, appendGeneratedContentToSource } from '../services/supabaseClient';
@@ -39,6 +39,31 @@ const Header: React.FC<{ title: string; theme: Theme; setTheme: (theme: Theme) =
         </div>
     </div>
 );
+
+const checkAndAwardAchievements = (user: User, appData: AppData): User => {
+    const newAchievements = new Set(user.achievements);
+    const interactions = appData.userContentInteractions.filter(i => i.user_id === user.id);
+    
+    const checkCategory = (category: { count: number; title: string; }[], count: number) => {
+        category.forEach(ach => {
+            if (count >= ach.count && !newAchievements.has(ach.title)) {
+                newAchievements.add(ach.title);
+            }
+        });
+    };
+
+    checkCategory(ACHIEVEMENTS.FLASHCARDS_FLIPPED, interactions.filter(i => i.content_type === 'flashcard' && i.is_read).length);
+    checkCategory(ACHIEVEMENTS.QUESTIONS_CORRECT, user.stats.correctAnswers);
+    checkCategory(ACHIEVEMENTS.STREAK, user.stats.streak || 0);
+    checkCategory(ACHIEVEMENTS.SUMMARIES_READ, interactions.filter(i => i.content_type === 'summary' && i.is_read).length);
+    checkCategory(ACHIEVEMENTS.MIND_MAPS_READ, interactions.filter(i => i.content_type === 'mind_map' && i.is_read).length);
+    
+    if (newAchievements.size > user.achievements.length) {
+        return { ...user, achievements: Array.from(newAchievements).sort() };
+    }
+    return user;
+};
+
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, setAppData, currentUser, updateUser, theme, setTheme, processingTasks, setProcessingTasks } = props;
@@ -76,7 +101,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Comunidade':
           return <CommunityView appData={appData} setAppData={setAppData} currentUser={currentUser} onNavigate={handleChatNavigation}/>;
       case 'Perfil':
-          return <ProfileView user={currentUser} appData={appData} onNavigate={handleChatNavigation} />;
+          return <ProfileView user={currentUser} updateUser={updateUser} appData={appData} setAppData={setAppData} onNavigate={handleChatNavigation} />;
       case 'Admin':
           return <AdminView appData={appData} setAppData={setAppData} />;
       case 'Fontes':
@@ -117,7 +142,7 @@ const CommentsModal: React.FC<{
     };
     
     const sortedComments = useMemo(() => {
-        const commentsCopy = [...comments];
+        const commentsCopy = [...(comments || [])];
         if (sortOrder === 'time') {
             return commentsCopy.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         } else { // 'temp'
@@ -171,37 +196,39 @@ type FilterStatus = 'all' | 'read' | 'unread';
 
 const ContentToolbar: React.FC<{
     sort: SortOption, setSort: (s: SortOption) => void,
-    filter: FilterStatus, setFilter: (f: FilterStatus) => void,
-    favoritesOnly: boolean, setFavoritesOnly: (b: boolean) => void,
-    onAiFilter: (prompt: string) => void,
+    filter?: FilterStatus, setFilter?: (f: FilterStatus) => void,
+    favoritesOnly?: boolean, setFavoritesOnly?: (b: boolean) => void,
+    onAiFilter?: (prompt: string) => void,
     onGenerate?: (prompt: string) => void,
-    isFiltering: boolean,
-    onClearFilter: () => void,
+    isFiltering?: boolean,
+    onClearFilter?: () => void,
 }> = ({ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter, onGenerate, isFiltering, onClearFilter }) => {
     const [prompt, setPrompt] = useState('');
     
     return (
         <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark mb-6 space-y-4">
-            <div className="flex flex-col md:flex-row gap-4 items-center">
-                <div className="flex-grow w-full relative">
-                    <input
-                        type="text"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder={onGenerate ? "Filtrar por relevância com IA ou gerar novo conteúdo..." : "Filtrar por relevância com IA..."}
-                        className="w-full p-2 pl-4 pr-32 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark"
-                    />
-                    <div className="absolute right-1 top-1 flex gap-1">
-                       <button onClick={() => onAiFilter(prompt)} className="px-3 py-1 bg-secondary-light text-white text-sm rounded-md hover:bg-emerald-600 disabled:opacity-50" disabled={!prompt}>Filtrar</button>
-                       {onGenerate && <button onClick={() => { onGenerate(prompt); }} className="px-3 py-1 bg-primary-light text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-50" disabled={!prompt}>Gerar</button>}
+            {onAiFilter && (
+                 <div className="flex flex-col md:flex-row gap-4 items-center">
+                    <div className="flex-grow w-full relative">
+                        <input
+                            type="text"
+                            value={prompt}
+                            onChange={(e) => setPrompt(e.target.value)}
+                            placeholder={onGenerate ? "Filtrar por relevância com IA ou gerar novo conteúdo..." : "Filtrar por relevância com IA..."}
+                            className="w-full p-2 pl-4 pr-32 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark"
+                        />
+                        <div className="absolute right-1 top-1 flex gap-1">
+                        <button onClick={() => onAiFilter(prompt)} className="px-3 py-1 bg-secondary-light text-white text-sm rounded-md hover:bg-emerald-600 disabled:opacity-50" disabled={!prompt}>Filtrar</button>
+                        {onGenerate && <button onClick={() => { onGenerate(prompt); }} className="px-3 py-1 bg-primary-light text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-50" disabled={!prompt}>Gerar</button>}
+                        </div>
                     </div>
+                    {isFiltering && onClearFilter && (
+                        <button onClick={onClearFilter} className="flex items-center gap-2 text-red-500 font-semibold text-sm">
+                            <XMarkIcon className="w-4 h-4" /> Limpar Filtro
+                        </button>
+                    )}
                 </div>
-                 {isFiltering && (
-                    <button onClick={onClearFilter} className="flex items-center gap-2 text-red-500 font-semibold text-sm">
-                        <XMarkIcon className="w-4 h-4" /> Limpar Filtro
-                    </button>
-                )}
-            </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-4 text-sm">
                 <div className="flex items-center gap-4">
                     <span className="font-semibold">Ordenar por:</span>
@@ -213,19 +240,21 @@ const ContentToolbar: React.FC<{
                         <button onClick={() => setSort('source')} title="Fonte" className={`p-2 rounded-full ${sort === 'source' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>📄</button>
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
-                    <div>
-                        <span className="font-semibold mr-2">Mostrar:</span>
-                        <select value={filter} onChange={e => setFilter(e.target.value as FilterStatus)} className="p-1 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
-                            <option value="all">Todos</option>
-                            <option value="read">Lidos</option>
-                            <option value="unread">Não lidos</option>
-                        </select>
+                {filter !== undefined && setFilter && favoritesOnly !== undefined && setFavoritesOnly && (
+                    <div className="flex items-center gap-4">
+                        <div>
+                            <span className="font-semibold mr-2">Mostrar:</span>
+                            <select value={filter} onChange={e => setFilter(e.target.value as FilterStatus)} className="p-1 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
+                                <option value="all">Todos</option>
+                                <option value="read">Lidos</option>
+                                <option value="unread">Não lidos</option>
+                            </select>
+                        </div>
+                        <button onClick={() => setFavoritesOnly(!favoritesOnly)} className={`flex items-center gap-1 p-2 rounded-md ${favoritesOnly ? 'bg-yellow-400/20 text-yellow-600' : ''}`}>
+                            <StarIcon filled={favoritesOnly} className="w-5 h-5" /> Favoritos
+                        </button>
                     </div>
-                    <button onClick={() => setFavoritesOnly(!favoritesOnly)} className={`flex items-center gap-1 p-2 rounded-md ${favoritesOnly ? 'bg-yellow-400/20 text-yellow-600' : ''}`}>
-                        <StarIcon filled={favoritesOnly} className="w-5 h-5" /> Favoritos
-                    </button>
-                </div>
+                )}
             </div>
         </div>
     );
@@ -233,18 +262,27 @@ const ContentToolbar: React.FC<{
 
 const ContentActions: React.FC<{
     item: { id: string, comments: Comment[], hot_votes: number, cold_votes: number },
-    contentType: ContentType,
+    contentType: ContentType | 'question_notebook' | 'question',
     currentUser: User,
-    interactions: UserContentInteraction[],
+    interactions: UserContentInteraction[] | UserNotebookInteraction[],
     onVote: (contentId: string, type: 'hot' | 'cold', increment: 1 | -1) => void,
     onToggleRead: (contentId: string, currentState: boolean) => void,
     onToggleFavorite: (contentId: string, currentState: boolean) => void,
     onComment: () => void,
-}> = ({ item, contentType, currentUser, interactions, onVote, onToggleRead, onToggleFavorite, onComment }) => {
+    extraActions?: React.ReactNode,
+}> = ({ item, contentType, currentUser, interactions, onVote, onToggleRead, onToggleFavorite, onComment, extraActions }) => {
     const [activeVote, setActiveVote] = useState<'hot' | 'cold' | null>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
     
-    const interaction = interactions.find(i => i.content_id === item.id && i.content_type === contentType);
+    // Type guard for interactions
+    const isContentInteraction = (i: any): i is UserContentInteraction => 'content_type' in i;
+
+    const interaction = interactions.find(i => {
+        if (contentType === 'question' || isContentInteraction(i)) {
+            return (i as UserContentInteraction).content_id === item.id;
+        }
+        return (i as UserNotebookInteraction).notebook_id === item.id;
+    });
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -275,6 +313,7 @@ const ContentActions: React.FC<{
             </div>
             <div className="flex-grow" />
             <button onClick={onComment} className="text-gray-500 hover:text-primary-light">Comentários ({item.comments?.length || 0})</button>
+            {extraActions}
              <button onClick={() => onToggleRead(item.id, !!interaction?.is_read)} title={interaction?.is_read ? "Marcar como não lido" : "Marcar como lido"}>
                 <EyeIcon className={`w-5 h-5 ${interaction?.is_read ? 'text-green-500' : 'text-gray-400'}`} />
             </button>
@@ -505,7 +544,88 @@ const CreateNotebookModal: React.FC<{
     );
 };
 
-// Fix: Define NotebookStatsModal to resolve 'Cannot find name' error.
+const QuestionStatsModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    question: Question;
+    appData: AppData;
+}> = ({ isOpen, onClose, question, appData }) => {
+    const stats = useMemo(() => {
+        if (!question) return null;
+
+        const allAnswersForThisQuestion = appData.userQuestionAnswers.filter(
+            ans => ans.question_id === question.id
+        );
+
+        const firstTryAnswers = allAnswersForThisQuestion.map(ans => ans.attempts[0]);
+        const totalFirstTries = firstTryAnswers.length;
+        if (totalFirstTries === 0) {
+            return { total: 0, correct: 0, incorrect: 0, distribution: question.options.map(o => ({ option: o, count: 0, percentage: 0})) };
+        }
+
+        const correctFirstTries = allAnswersForThisQuestion.filter(ans => ans.is_correct_first_try).length;
+        const incorrectFirstTries = totalFirstTries - correctFirstTries;
+
+        const distribution = question.options.map(option => {
+            const count = firstTryAnswers.filter(ans => ans === option).length;
+            return { option, count, percentage: (count / totalFirstTries) * 100 };
+        });
+
+        return {
+            total: totalFirstTries,
+            correct: correctFirstTries,
+            incorrect: incorrectFirstTries,
+            distribution: distribution.sort((a,b) => b.count - a.count)
+        };
+    }, [question, appData.userQuestionAnswers]);
+
+    if (!stats) return null;
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas da Questão`}>
+            <div className="space-y-4">
+                <p className="text-sm font-semibold truncate">{question.questionText}</p>
+                 {stats.total > 0 ? (
+                    <>
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                            <div className="bg-background-light dark:bg-background-dark p-3 rounded-lg">
+                                <p className="font-semibold text-gray-500">Respostas</p>
+                                <p className="text-2xl font-bold">{stats.total}</p>
+                            </div>
+                             <div className="bg-green-100 dark:bg-green-900/50 p-3 rounded-lg">
+                                <p className="font-semibold text-green-700 dark:text-green-300">Acertos</p>
+                                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.correct}</p>
+                            </div>
+                             <div className="bg-red-100 dark:bg-red-900/50 p-3 rounded-lg">
+                                <p className="font-semibold text-red-700 dark:text-red-300">Erros</p>
+                                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.incorrect}</p>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 className="font-semibold mb-2">Distribuição das Respostas (1ª Tentativa)</h4>
+                            <div className="space-y-2">
+                                {stats.distribution.map(({ option, count, percentage }) => (
+                                    <div key={option}>
+                                        <div className="flex justify-between items-center text-sm mb-1">
+                                            <span className={`truncate ${option === question.correctAnswer ? 'font-bold' : ''}`} title={option}>{option}</span>
+                                            <span>{count} ({percentage.toFixed(0)}%)</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                            <div className={`h-2.5 rounded-full ${option === question.correctAnswer ? 'bg-green-500' : 'bg-primary-light'}`} style={{ width: `${percentage}%` }}></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <p className="text-center text-gray-500 py-4">Nenhum usuário respondeu a esta questão ainda.</p>
+                )}
+            </div>
+        </Modal>
+    );
+};
+
 const NotebookStatsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
@@ -723,49 +843,55 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
 
 const handleInteractionUpdate = async (
     setAppData: React.Dispatch<React.SetStateAction<AppData>>,
+    appData: AppData,
     currentUser: User,
     updateUser: (user: User) => void,
     contentType: ContentType,
     contentId: string,
     update: Partial<UserContentInteraction>
 ) => {
-    const interactionKey = `${currentUser.id}-${contentId}-${contentType}`;
-    const existingInteraction = await supabase!.from('user_content_interactions').select('*').eq('user_id', currentUser.id).eq('content_id', contentId).eq('content_type', contentType).single();
-    
-    const wasRead = existingInteraction.data?.is_read || false;
-    
-    const interaction = {
+    const existingInteraction = appData.userContentInteractions.find(
+      i => i.user_id === currentUser.id && i.content_id === contentId && i.content_type === contentType
+    );
+    const wasRead = existingInteraction?.is_read || false;
+
+    let xpGained = 0;
+    // Grant XP if a flashcard is being marked as read (flipped) for the first time
+    if (contentType === 'flashcard' && update.is_read && !wasRead) {
+        xpGained += 1;
+    }
+
+    // Optimistic UI update
+    let newInteractions = [...appData.userContentInteractions];
+    const existingIndex = newInteractions.findIndex(i => i.id === existingInteraction?.id);
+    if (existingIndex > -1) {
+        newInteractions[existingIndex] = { ...newInteractions[existingIndex], ...update };
+    } else {
+        newInteractions.push({ id: `temp-${Date.now()}`, user_id: currentUser.id, content_id: contentId, content_type: contentType, is_read: false, is_favorite: false, hot_votes: 0, cold_votes: 0, ...update });
+    }
+    const tempAppData = { ...appData, userContentInteractions: newInteractions };
+    setAppData(tempAppData);
+
+    // Update DB
+    const result = await upsertUserContentInteraction({
         user_id: currentUser.id,
         content_id: contentId,
         content_type: contentType,
         ...update
-    };
-
-    // Optimistic UI update
-    setAppData(prev => {
-        const existingIndex = prev.userContentInteractions.findIndex(
-            i => i.user_id === currentUser.id && i.content_id === contentId && i.content_type === contentType
-        );
-        let newInteractions = [...prev.userContentInteractions];
-        if (existingIndex > -1) {
-            newInteractions[existingIndex] = { ...newInteractions[existingIndex], ...interaction };
-        } else {
-            newInteractions.push({ id: `temp-${Date.now()}`, is_read: false, is_favorite: false, hot_votes: 0, cold_votes: 0, ...interaction });
-        }
-        return { ...prev, userContentInteractions: newInteractions };
     });
-
-    const result = await upsertUserContentInteraction(interaction);
-
-    // Grant XP if item is being marked as read for the first time
-    if (update.is_read && !wasRead) {
-        const XP_FOR_READING = 2;
-        updateUser({ ...currentUser, xp: currentUser.xp + XP_FOR_READING });
-    }
     
     if (!result) {
-        // TODO: Handle error, maybe revert state
         console.error("Failed to update interaction on the server.");
+        // Revert state on failure
+        setAppData(appData);
+        return;
+    }
+
+    const userWithNewXp = { ...currentUser, xp: currentUser.xp + xpGained };
+    const userWithNewAchievements = checkAndAwardAchievements(userWithNewXp, tempAppData);
+
+    if (userWithNewAchievements.xp !== currentUser.xp || userWithNewAchievements.achievements.length !== currentUser.achievements.length) {
+        updateUser(userWithNewAchievements);
     }
 };
 
@@ -792,7 +918,7 @@ const handleVoteUpdate = async (
         [`${type}_votes`]: currentVoteCount + increment
     };
     
-    handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, contentId, voteUpdate);
+    handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, contentId, voteUpdate);
     
     // Update main content vote count optimistically
     setAppData(prev => {
@@ -877,7 +1003,7 @@ const handleGenerateNewContent = async (
             const newSources = [...prev.sources];
             const sourceIndex = newSources.findIndex(s => s.id === firstSource.id);
             if (sourceIndex > -1) {
-                const newlyAddedItems = createdContent[contentType];
+                const newlyAddedItems = createdContent[contentType as keyof typeof createdContent];
                 const updatedSource = {
                     ...newSources[sourceIndex],
                     [contentType]: [
@@ -899,27 +1025,45 @@ const handleGenerateNewContent = async (
 };
 
 const renderSummaryWithTooltips = (summary: Summary) => {
-    let content: (string | React.ReactElement)[] = [summary.content];
+    let content: (string | React.ReactElement)[] = [(summary.content || "")];
     
-    for (const keyPoint of summary.keyPoints) {
-        let newContent: (string | React.ReactElement)[] = [];
-        const regex = new RegExp(`\\b(${keyPoint.term})\\b`, 'gi');
+    // Replace markdown-like bolding with <strong> tags
+    const processMarkdown = (part: string | React.ReactElement) => {
+        if (typeof part !== 'string') return [part];
+        const elements: (string | React.ReactElement)[] = [];
+        const parts = part.split(/(\*\*.*?\*\*)/g);
+        parts.forEach((p, i) => {
+            if (p.startsWith('**') && p.endsWith('**')) {
+                elements.push(<strong key={`strong-${i}`}>{p.slice(2, -2)}</strong>);
+            } else {
+                elements.push(p);
+            }
+        });
+        return elements;
+    };
 
+    content = content.flatMap(processMarkdown);
+
+    for (const keyPoint of (summary.keyPoints || [])) {
+        if (!keyPoint.term) continue;
+        let newContent: (string | React.ReactElement)[] = [];
+        const regex = new RegExp(`\\b(${keyPoint.term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})\\b`, 'gi');
+        
         for (const part of content) {
             if (typeof part === 'string') {
-                const parts = part.split(regex);
-                for (let i = 0; i < parts.length; i++) {
+                const stringParts = part.split(regex);
+                for (let i = 0; i < stringParts.length; i++) {
                     if (i % 2 === 1) { // It's the term
                         newContent.push(
-                            <span key={`${keyPoint.term}-${i}`} className="relative group font-bold text-primary-light dark:text-primary-dark cursor-pointer">
-                                {parts[i]}
+                            <span key={`${keyPoint.term}-${i}`} className="relative group font-bold text-primary-light dark:text-primary-dark cursor-pointer underline decoration-dotted">
+                                {stringParts[i]}
                                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-2 bg-gray-800 text-white text-sm rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10">
                                     {keyPoint.description}
                                 </span>
                             </span>
                         );
                     } else {
-                        newContent.push(parts[i]);
+                        newContent.push(stringParts[i]);
                     }
                 }
             } else {
@@ -928,7 +1072,7 @@ const renderSummaryWithTooltips = (summary: Summary) => {
         }
         content = newContent;
     }
-    return <p className="whitespace-pre-wrap">{content}</p>;
+    return <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{content}</div>;
 }
 
 
@@ -995,8 +1139,8 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
             <ContentActions
                 item={summary} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
                 onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, contentType, id, type, inc)}
-                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_read: !state })}
-                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
+                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_read: !state })}
+                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
                 onComment={() => setCommentingOn(summary)}
             />
         </div>
@@ -1079,12 +1223,19 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
             setCommentingOn(updatedItem);
         }
     };
+
+    const handleFlip = (cardId: string) => {
+        if (flipped !== cardId) {
+            handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'flashcard', cardId, { is_read: true });
+        }
+        setFlipped(flipped === cardId ? null : cardId);
+    };
     
     const renderItems = (items: any[]) => (
          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {items.map(card => (
                  <div id={`flashcard-${card.id}`} key={card.id} className="[perspective:1000px] min-h-64 group flex flex-col">
-                    <div className={`relative w-full flex-grow [transform-style:preserve-3d] transition-transform duration-700 ${flipped === card.id ? '[transform:rotateY(180deg)]' : ''}`} onClick={() => setFlipped(flipped === card.id ? null : card.id)}>
+                    <div className={`relative w-full flex-grow [transform-style:preserve-3d] transition-transform duration-700 ${flipped === card.id ? '[transform:rotateY(180deg)]' : ''}`} onClick={() => handleFlip(card.id)}>
                         <div className="absolute w-full h-full [backface-visibility:hidden] flex flex-col justify-between p-6 bg-card-light dark:bg-card-dark rounded-t-lg shadow-md border border-b-0 border-border-light dark:border-border-dark cursor-pointer">
                             <div>
                                 <p className="text-xs text-gray-500">{card.source?.materia} - {card.source?.topic}</p>
@@ -1100,8 +1251,8 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
                          <ContentActions
                             item={card} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
                             onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, contentType, id, type, inc)}
-                            onToggleRead={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_read: !state })}
-                            onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
+                            onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_read: !state })}
+                            onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
                             onComment={() => setCommentingOn(card)}
                         />
                     </div>
@@ -1259,6 +1410,7 @@ const NotebookDetailView: React.FC<{
     const [wrongAnswers, setWrongAnswers] = useState<Set<string>>(new Set());
     const [isCompleted, setIsCompleted] = useState(false);
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+    const [isQuestionStatsModalOpen, setIsQuestionStatsModalOpen] = useState(false);
     const [commentingOnQuestion, setCommentingOnQuestion] = useState<Question | null>(null);
 
     const currentQuestion = questions[currentQuestionIndex];
@@ -1323,30 +1475,37 @@ const NotebookDetailView: React.FC<{
         const wasAnsweredBefore = userAnswers.has(currentQuestion.id);
         if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
             const attempts = [...newWrongAnswers, option];
+            const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0]; // XP for 0, 1, 2, 3+ wrong answers
             const xpGained = isCorrect ? (xpMap[wrongAnswers.size] || 0) : 0;
 
             const answerPayload: Partial<UserQuestionAnswer> = {
                 user_id: currentUser.id, notebook_id: notebookId, question_id: currentQuestion.id,
-                attempts: attempts, is_correct_first_try: attempts.length === 1 && isCorrect, xp_awarded: xpGained
+                attempts: attempts, is_correct_first_try: isCorrectFirstTry, xp_awarded: xpGained
             };
             const savedAnswer = await upsertUserQuestionAnswer(answerPayload);
             if (savedAnswer) {
                 setAppData(prev => ({...prev, userQuestionAnswers: [...prev.userQuestionAnswers.filter(a => a.id !== savedAnswer.id), savedAnswer]}));
             }
             
-            // Stats are only for the very first try ever
             const newStats = { ...currentUser.stats };
-            newStats.questionsAnswered += 1;
-            if (attempts.length === 1 && isCorrect) {
-                newStats.correctAnswers += 1;
+            newStats.questionsAnswered = (newStats.questionsAnswered || 0) + 1;
+            
+            const currentStreak = currentUser.stats.streak || 0;
+            newStats.streak = isCorrectFirstTry ? currentStreak + 1 : 0;
+
+            if (isCorrectFirstTry) {
+                newStats.correctAnswers = (newStats.correctAnswers || 0) + 1;
             }
+            
             const topic = currentQuestion.source?.topic || 'Geral';
             if (!newStats.topicPerformance[topic]) newStats.topicPerformance[topic] = { correct: 0, total: 0 };
             newStats.topicPerformance[topic].total += 1;
-            if (attempts.length === 1 && isCorrect) newStats.topicPerformance[topic].correct += 1;
+            if (isCorrectFirstTry) newStats.topicPerformance[topic].correct += 1;
             
-            updateUser({ ...currentUser, stats: newStats, xp: currentUser.xp + xpGained });
+            const userWithNewStats = { ...currentUser, stats: newStats, xp: currentUser.xp + xpGained };
+            const finalUser = checkAndAwardAchievements(userWithNewStats, appData);
+            updateUser(finalUser);
         }
     };
     
@@ -1361,7 +1520,7 @@ const NotebookDetailView: React.FC<{
         return (
             <div>
                 <button onClick={onBack} className="mb-4 text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
-                <p>Nenhuma questão encontrada neste caderno.</p>
+                <p>Nenhuma questão encontrada neste caderno ou as questões estão sendo carregadas.</p>
             </div>
         );
     }
@@ -1401,6 +1560,14 @@ const NotebookDetailView: React.FC<{
                 }}
             />
         )}
+        {isQuestionStatsModalOpen && (
+             <QuestionStatsModal
+                isOpen={isQuestionStatsModalOpen}
+                onClose={() => setIsQuestionStatsModalOpen(false)}
+                question={currentQuestion}
+                appData={appData}
+            />
+        )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
             <div className="flex justify-between items-center mb-4">
                 <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
@@ -1416,10 +1583,10 @@ const NotebookDetailView: React.FC<{
                 <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}></div>
             </div>
 
-            <h2 className="text-xl font-semibold mb-4">{currentQuestion.questionText}</h2>
+            <h2 className="text-xl font-semibold mb-4">{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
 
             <div className="space-y-3">
-                {currentQuestion.options.map((option, index) => {
+                {(currentQuestion?.options || []).map((option, index) => {
                     const isSelected = selectedOption === option;
                     const isWrong = wrongAnswers.has(option);
                     const isCorrect = option === currentQuestion.correctAnswer;
@@ -1461,9 +1628,14 @@ const NotebookDetailView: React.FC<{
              <ContentActions
                 item={currentQuestion} contentType='question' currentUser={currentUser} interactions={appData.userContentInteractions}
                 onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, 'question', id, type, inc)}
-                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, 'question', id, { is_read: !state })}
-                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, 'question', id, { is_favorite: !state })}
+                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_read: !state })}
+                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_favorite: !state })}
                 onComment={() => setCommentingOnQuestion(currentQuestion)}
+                extraActions={
+                    <button onClick={() => setIsQuestionStatsModalOpen(true)} className="text-gray-500 hover:text-primary-light flex items-center gap-1" title="Estatísticas da questão">
+                        <Cog6ToothIcon className="w-5 h-5"/>
+                    </button>
+                }
             />
 
             <div className="mt-6 flex justify-between items-center">
@@ -1573,15 +1745,15 @@ const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_a
     const renderItems = (items: any[]) => (
          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {items.map(map => (
-                <div key={map.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
+                <div key={map.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
                     <h3 className="text-xl font-bold mb-2">{map.title}</h3>
-                    <p className="text-xs text-gray-500 mb-4">{map.source?.topic}</p>
-                    <img src={map.imageUrl} alt={map.title} className="w-full h-auto rounded-md"/>
+                     <p className="text-xs text-gray-500 mb-4">Fonte: {map.source?.title}</p>
+                    <img src={map.imageUrl} alt={map.title} className="w-full h-auto rounded-md border border-border-light dark:border-border-dark"/>
                     <ContentActions
                         item={map} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
                         onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, contentType, id, type, inc)}
-                        onToggleRead={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_read: !state })}
-                        onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
+                        onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_read: !state })}
+                        onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
                         onComment={() => setCommentingOn(map)}
                     />
                 </div>
@@ -1757,8 +1929,8 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
             <ContentActions
                 item={audio} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
                 onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, contentType, id, type, inc)}
-                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_read: !state })}
-                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
+                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_read: !state })}
+                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, id, { is_favorite: !state })}
                 onComment={() => setCommentingOn(audio)}
             />
         </div>
@@ -2093,7 +2265,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     );
 };
 
-const ProfileView: React.FC<{ user: User, appData: AppData, onNavigate: (viewName: string, term: string) => void; }> = ({ user, appData, onNavigate }) => {
+const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>, updateUser: (user: User) => void, onNavigate: (viewName: string, term: string) => void; }> = ({ user, appData, setAppData, updateUser, onNavigate }) => {
     const { correctAnswers, questionsAnswered, topicPerformance } = user.stats;
     const overallAccuracy = questionsAnswered > 0 ? (correctAnswers / questionsAnswered) * 100 : 0;
     const pieData = [ { name: 'Corretas', value: correctAnswers }, { name: 'Incorretas', value: questionsAnswered - correctAnswers } ];
@@ -2105,14 +2277,21 @@ const ProfileView: React.FC<{ user: User, appData: AppData, onNavigate: (viewNam
     
     const [studyPlan, setStudyPlan] = useState("");
     const [loadingPlan, setLoadingPlan] = useState(false);
+    const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     
+    const [notebookSort, setNotebookSort] = useState<SortOption>('time');
+
     const handleGeneratePlan = async () => {
         setLoadingPlan(true);
+        const allSummaries = appData.sources.flatMap(s => s.summaries);
+        const allFlashcards = appData.sources.flatMap(s => s.flashcards);
+        
         const content = {
-            summaries: appData.sources.flatMap(s => s.summaries),
-            flashcards: appData.sources.flatMap(s => s.flashcards),
+            summaries: allSummaries,
+            flashcards: allFlashcards,
             notebooks: appData.questionNotebooks
         };
+
         const plan = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
         setStudyPlan(plan);
         setLoadingPlan(false);
@@ -2154,11 +2333,82 @@ const ProfileView: React.FC<{ user: User, appData: AppData, onNavigate: (viewNam
             parts.push(text.substring(lastIndex));
         }
 
-        return <p className="whitespace-pre-wrap">{parts}</p>;
+        return <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{parts}</div>;
+    };
+
+    const userNotebooks = useMemo(() => {
+        const notebooks = appData.questionNotebooks.filter(n => n.user_id === user.id);
+        switch (notebookSort) {
+            case 'time':
+                return notebooks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            case 'temp':
+                return notebooks.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
+            default:
+                return notebooks;
+        }
+    }, [appData.questionNotebooks, user.id, notebookSort]);
+
+    const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
+        // Optimistic UI update
+        let newInteractions = [...appData.userNotebookInteractions];
+        const existingIndex = newInteractions.findIndex(i => i.user_id === user.id && i.notebook_id === notebookId);
+        if (existingIndex > -1) {
+            newInteractions[existingIndex] = { ...newInteractions[existingIndex], ...update };
+        } else {
+            newInteractions.push({ id: `temp-nb-${Date.now()}`, user_id: user.id, notebook_id: notebookId, is_read: false, is_favorite: false, hot_votes: 0, cold_votes: 0, ...update });
+        }
+        setAppData(prev => ({...prev, userNotebookInteractions: newInteractions }));
+
+        // DB update
+        const result = await upsertUserVote('user_notebook_interactions', { user_id: user.id, notebook_id: notebookId, ...update }, ['user_id', 'notebook_id']);
+        if (!result) {
+            console.error("Failed to update notebook interaction.");
+            // Revert on failure
+            setAppData(appData);
+        }
+    };
+    
+    const handleNotebookVote = async (notebookId: string, type: 'hot' | 'cold', increment: 1 | -1) => {
+        const interaction = appData.userNotebookInteractions.find(i => i.user_id === user.id && i.notebook_id === notebookId);
+        const currentVoteCount = (type === 'hot' ? interaction?.hot_votes : interaction?.cold_votes) || 0;
+        if (increment === -1 && currentVoteCount <= 0) return;
+
+        handleNotebookInteractionUpdate(notebookId, { [`${type}_votes`]: currentVoteCount + increment });
+        
+        setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
+        
+        await incrementVoteCount('increment_notebook_vote', notebookId, `${type}_votes`, increment);
+    };
+
+     const handleNotebookCommentAction = async (action: 'add' | 'vote', payload: any) => {
+        if (!commentingOnNotebook) return;
+        let updatedComments = [...commentingOnNotebook.comments];
+        if (action === 'add') {
+            updatedComments.push({ id: `c_${Date.now()}`, authorId: user.id, authorPseudonym: user.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 });
+        } else {
+             const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
+            if (commentIndex > -1) updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+        }
+        
+        const success = await updateContentComments('question_notebooks', commentingOnNotebook.id, updatedComments);
+        if (success) {
+            const updatedItem = {...commentingOnNotebook, comments: updatedComments };
+            setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === updatedItem.id ? updatedItem : n) }));
+            setCommentingOnNotebook(updatedItem);
+        }
     };
 
     return (
         <div className="space-y-8">
+            <CommentsModal 
+                isOpen={!!commentingOnNotebook}
+                onClose={() => setCommentingOnNotebook(null)}
+                comments={commentingOnNotebook?.comments || []}
+                onAddComment={(text) => handleNotebookCommentAction('add', { text })}
+                onVoteComment={(id, type) => handleNotebookCommentAction('vote', { commentId: id, voteType: type })}
+                contentTitle={commentingOnNotebook?.name || ''}
+            />
+
             <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-bold">Plano de Estudos Personalizado (IA)</h3>
@@ -2166,7 +2416,7 @@ const ProfileView: React.FC<{ user: User, appData: AppData, onNavigate: (viewNam
                        <SparklesIcon className="w-5 h-5"/> {loadingPlan ? 'Gerando...' : 'Gerar/Atualizar Plano'}
                     </button>
                 </div>
-                {studyPlan ? <div className="prose dark:prose-invert max-w-none">{parseAndRenderMessage(studyPlan)}</div> : <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>}
+                {studyPlan ? parseAndRenderMessage(studyPlan) : <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>}
             </div>
 
             <div className="bg-card-light dark:bg-card-dark p-8 rounded-lg shadow-md border border-border-light dark:border-border-dark">
@@ -2205,13 +2455,36 @@ const ProfileView: React.FC<{ user: User, appData: AppData, onNavigate: (viewNam
                     {user.achievements.length > 0 ? (
                         <div className="flex flex-wrap gap-4">
                             {user.achievements.map((ach, i) => (
-                                <div key={i} className="flex items-center space-x-2 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 p-3 rounded-lg">
+                                <div key={i} className="flex items-center space-x-2 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 p-3 rounded-lg" title={ach}>
                                 <span>🏆</span>
                                 <span className="font-semibold">{ach}</span>
                                 </div>
                             ))}
                         </div>
                     ) : <p className="text-gray-500 dark:text-gray-400">Continue estudando para desbloquear conquistas!</p>}
+                </div>
+            </div>
+
+             <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                <h3 className="text-2xl font-bold mb-4">Meus Cadernos de Questões</h3>
+                <ContentToolbar sort={notebookSort} setSort={setNotebookSort as (s: SortOption) => void} />
+                <div className="space-y-4">
+                    {userNotebooks.length > 0 ? userNotebooks.map(notebook => (
+                        <div key={notebook.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
+                            <h4 className="font-bold">{notebook.name}</h4>
+                            <p className="text-sm text-gray-500">{notebook.question_ids.length} questões</p>
+                            <ContentActions
+                                item={notebook}
+                                contentType="question_notebook"
+                                currentUser={user}
+                                interactions={appData.userNotebookInteractions.filter(i => i.user_id === user.id)}
+                                onVote={(id, type, inc) => handleNotebookVote(id, type, inc)}
+                                onToggleRead={(id, state) => handleNotebookInteractionUpdate(id, { is_read: !state })}
+                                onToggleFavorite={(id, state) => handleNotebookInteractionUpdate(id, { is_favorite: !state })}
+                                onComment={() => setCommentingOnNotebook(notebook)}
+                            />
+                        </div>
+                    )) : <p className="text-gray-500">Você ainda não criou nenhum caderno de questões.</p>}
                 </div>
             </div>
 
@@ -2449,8 +2722,9 @@ const SourcesView: React.FC<{
                 let mindMapPayload = [];
                 if (generatedData.mindMapTopics && generatedData.mindMapTopics.length > 0) {
                     for (let i = 0; i < generatedData.mindMapTopics.length; i++) {
-                        updateTask(`Gerando mapa mental ${i + 1}/${generatedData.mindMapTopics.length}...`);
-                        const imageResult = await generateImageForMindMap(generatedData.mindMapTopics[i]);
+                        const topic = generatedData.mindMapTopics[i];
+                        updateTask(`Gerando mapa mental ${i + 1}/${generatedData.mindMapTopics.length}: ${topic.title}...`);
+                        const imageResult = await generateImageForMindMap(topic.prompt);
                         if (imageResult.base64Image) {
                             const imageBlob = base64ToBlob(imageResult.base64Image, 'image/png');
                             const mindMapFile = new File([imageBlob], `mindmap_${Date.now()}_${i}.png`, { type: 'image/png' });
@@ -2458,7 +2732,7 @@ const SourcesView: React.FC<{
                             const { error } = await supabase!.storage.from('sources').upload(mindMapPath, mindMapFile);
                             if (!error) {
                                 const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(mindMapPath);
-                                mindMapPayload.push({ title: `Mapa Mental: ${generatedData.mindMapTopics[i]}`, imageUrl: publicUrl });
+                                mindMapPayload.push({ title: topic.title, imageUrl: publicUrl });
                             }
                         }
                     }
@@ -2792,12 +3066,41 @@ const SourcesView: React.FC<{
 
     return (
         <div className="space-y-8">
+            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                <h2 className="text-2xl font-bold mb-4">Adicionar Nova Fonte</h2>
+                <p className="text-sm text-gray-500 mb-4">Anexe arquivos (PDF, DOCX, TXT) ou descreva um tópico para que a IA gere um conjunto completo de materiais de estudo. O processamento é feito em segundo plano.</p>
+                <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Ou simplesmente digite um prompt/pergunta. A IA pedirá para selecionar fontes existentes como contexto..."
+                    className="w-full h-24 p-3 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark focus:ring-2 focus:ring-primary-light"
+                />
+                <div className="mt-2 space-y-2">
+                    {attachedFiles.map(file => (
+                        <div key={file.name} className="flex items-center justify-between bg-background-light dark:bg-background-dark p-2 rounded-md border border-border-light dark:border-border-dark">
+                            <span className="text-sm truncate">{file.name}</span>
+                            <button onClick={() => handleRemoveFile(file.name)} className="text-red-500 hover:text-red-700">
+                                <XMarkIcon className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-md border border-border-light dark:border-border-dark hover:bg-gray-100 dark:hover:bg-gray-700">
+                        <PaperClipIcon className="w-5 h-5"/> Anexar Arquivos
+                    </button>
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} multiple className="hidden" accept=".pdf,.txt,.docx" />
+                    <button onClick={() => handleProcessSource()} className="px-6 py-2 bg-primary-light text-white font-bold rounded-md hover:bg-indigo-600 disabled:opacity-50">
+                        Processar
+                    </button>
+                </div>
+            </div>
             {exploringSource && (
                 <ExploreSourceModal
                     isOpen={!!exploringSource}
                     onClose={() => setExploringSource(null)}
                     sourceTitle={exploringSource.title}
-                    isLoading={false} // Loading state can be managed inside if it's long
+                    isLoading={false} // This can be managed internally if needed
                     onConfirm={handleExploreSource}
                 />
             )}
@@ -2839,115 +3142,50 @@ const SourcesView: React.FC<{
                     </div>
                 </Modal>
             )}
-            
-            <GenerateContentModal 
-                isOpen={isSelectSourceModalOpen}
-                onClose={() => setSelectSourceModalOpen(false)}
-                sources={appData.sources}
-                prompt={prompt}
-                contentType="summaries"
-                isLoading={processingTasks.some(t => t.status === 'processing')}
-                onGenerate={handleSelectSourcesForPrompt}
-            />
-            
-            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Adicione um prompt para a IA ou anexe arquivos abaixo..." className="w-full h-20 p-2 mb-4 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md focus:outline-none focus:ring-2 focus:ring-primary-light"/>
-                
-                <div className="p-4 border-2 border-dashed border-border-light dark:border-border-dark rounded-lg">
-                    <input type="file" accept=".pdf,.txt,.jpg,.png,.mp3,.wav,.docx" multiple onChange={handleFileChange} className="hidden" ref={fileInputRef}/>
-                    <button onClick={() => fileInputRef.current?.click()} className="w-full flex flex-col items-center justify-center p-4 text-center text-gray-500 hover:text-primary-light dark:hover:text-primary-dark transition-colors">
-                        <CloudArrowUpIcon className="w-12 h-12 mb-2"/>
-                        <span className="text-sm">PDF, TXT, DOCX, Imagens ou Áudio</span>
-                    </button>
-                    {attachedFiles.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                            <h4 className="font-semibold text-sm mb-2">Arquivos Selecionados:</h4>
-                            <ul className="space-y-2">
-                                {attachedFiles.map(file => (
-                                    <li key={file.name} className="flex items-center justify-between bg-background-light dark:bg-background-dark p-2 rounded-md text-sm">
-                                        <span className="truncate pr-2">{file.name}</span>
-                                        <button onClick={() => handleRemoveFile(file.name)} className="text-red-500 hover:text-red-700 p-1 rounded-full flex-shrink-0">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </div>
 
-                <button onClick={() => handleProcessSource()} disabled={processingTasks.some(t => t.status === 'processing') || (attachedFiles.length === 0 && !prompt.trim())} className="mt-4 w-full bg-primary-light text-white font-bold py-3 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-12">
-                    {processingTasks.some(t => t.status === 'processing') ? (
-                        <div className="flex items-center">
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>Processando...</span>
-                        </div>
-                    ) : "Processar Fonte"}
-                </button>
-            </div>
-
-            {processingTasks.length > 0 && (
-                <div className="mb-6 space-y-3 p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                    <h3 className="text-lg font-bold">Processamento em Andamento</h3>
-                    {processingTasks.map(task => (
-                        <div key={task.id} className="flex items-center justify-between p-3 bg-background-light dark:bg-background-dark rounded-md">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                                {task.status === 'processing' && <svg className="animate-spin h-5 w-5 text-primary-light flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
-                                {task.status === 'success' && <CheckCircleIcon className="h-5 w-5 text-green-500 flex-shrink-0" />}
-                                {task.status === 'error' && <XMarkIcon className="h-5 w-5 text-red-500 flex-shrink-0" />}
-                                <div className="overflow-hidden">
-                                    <p className="font-semibold truncate" title={task.name}>{task.name}</p>
-                                    <p className="text-sm text-gray-500 truncate" title={task.message}>{task.message}</p>
+             {processingTasks.length > 0 && (
+                <div>
+                    <h3 className="text-xl font-bold mb-4">Processamento em Andamento</h3>
+                    <div className="space-y-3">
+                        {processingTasks.map(task => (
+                            <div key={task.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
+                                <div className="flex justify-between items-center">
+                                    <p className="font-semibold truncate">{task.name}</p>
+                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${task.status === 'processing' ? 'bg-blue-200 text-blue-800 animate-pulse' : task.status === 'success' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+                                        {task.status}
+                                    </span>
                                 </div>
+                                <p className="text-sm text-gray-500 mt-1">{task.message}</p>
                             </div>
-                            {task.status === 'error' && <button onClick={() => setProcessingTasks(prev => prev.filter(t => t.id !== task.id))} className="text-sm text-gray-500 hover:text-gray-800">Dispensar</button>}
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
             )}
-
-
-            <div>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold">Fontes Adicionadas</h2>
+             <div>
+                <h3 className="text-xl font-bold mb-4">Fontes Adicionadas</h3>
+                <div className="flex items-center justify-between gap-4 text-sm bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark mb-6">
+                    <span className="font-semibold">Agrupar por:</span>
                     <div className="flex items-center gap-2">
-                        {(['time', 'temp', 'user', 'subject'] as const).map(mode => (
-                            <button
-                                key={mode}
-                                onClick={() => setDisplayMode(mode)}
-                                className={`p-2 rounded-full ${displayMode === mode ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                title={ mode === 'time' ? "Ordenar por data" : mode === 'temp' ? "Ordenar por temperatura" : mode === 'user' ? "Agrupar por usuário" : "Agrupar por matéria" }
-                            >
-                                {mode === 'time' && <ClockIcon className="w-6 h-6" />}
-                                {mode === 'temp' && <FireIcon className="w-6 h-6" />}
-                                {mode === 'user' && <UserCircleIcon className="w-6 h-6" />}
-                                {mode === 'subject' && <BookOpenIcon className="w-6 h-6" />}
-                            </button>
-                        ))}
+                        <button onClick={() => setDisplayMode('time')} title="Data" className={`p-2 rounded-full ${displayMode === 'time' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
+                        <button onClick={() => setDisplayMode('temp')} title="Temperatura" className={`p-2 rounded-full ${displayMode === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
+                        <button onClick={() => setDisplayMode('user')} title="Usuário" className={`p-2 rounded-full ${displayMode === 'user' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>👤</button>
+                        <button onClick={() => setDisplayMode('subject')} title="Matéria" className={`p-2 rounded-full ${displayMode === 'subject' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>📚</button>
                     </div>
                 </div>
-                {Array.isArray(processedSources) ? (
-                    <div className="space-y-4">
-                        {processedSources.map(source => (
-                           <SourceItemContent key={source.id} source={source} />
-                        ))}
-                    </div>
-                ) : (
-                     Object.entries(processedSources as Record<string, Source[]>).map(([group, sources]) => (
-                        <details key={group} open className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                             <summary className="text-xl font-bold cursor-pointer">{displayMode === 'user' ? (appData.users.find(u => u.id === group)?.pseudonym || 'Desconhecido') : group}</summary>
-                             <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                {sources.map(source => (
-                                    <SourceItemContent key={source.id} source={source} />
-                                 ))}
-                             </div>
-                        </details>
-                    ))
-                )}
-            </div>
+                 <div className="space-y-4">
+                    {Array.isArray(processedSources) 
+                        ? processedSources.map(source => <SourceItemContent key={source.id} source={source} />)
+                        : Object.entries(processedSources as Record<string, Source[]>).map(([groupKey, sources]) => (
+                            <details key={groupKey} open className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                                <summary className="text-xl font-bold cursor-pointer">{displayMode === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                    {sources.sort((a,b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes)).map(source => <SourceItemContent key={source.id} source={source} />)}
+                                </div>
+                            </details>
+                        ))
+                    }
+                </div>
+             </div>
         </div>
     );
 };

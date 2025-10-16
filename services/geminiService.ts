@@ -41,7 +41,7 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
         return { error: "A funcionalidade da IA está desabilitada. Configure a API Key." };
     }
     try {
-        const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 4 opções, uma resposta correta, uma breve explicação e duas dicas úteis. Siga estritamente o schema JSON fornecido.`;
+        const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 4 opções, uma resposta correta, uma breve explicação e duas dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta. Siga estritamente o schema JSON fornecido.`;
 
         const response: GenerateContentResponse = await getModel().generateContent({
             model: "gemini-2.5-flash",
@@ -60,7 +60,7 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
                                     options: { type: Type.ARRAY, items: { type: Type.STRING } },
                                     correctAnswer: { type: Type.STRING },
                                     explanation: { type: Type.STRING },
-                                    hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                                    hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis e sutis sobre a questão, que ajudem no raciocínio." },
                                 },
                                 required: ['questionText', 'options', 'correctAnswer', 'explanation', 'hints']
                             },
@@ -87,10 +87,10 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
     1. Analise o conteúdo e gere um título conciso e um resumo curto (2-3 frases) para o material.
     2. Categorize o conteúdo. Identifique a matéria principal e o tópico específico. Se possível, use uma das matérias/tópicos existentes: ${JSON.stringify(existingTopics)}. Se não corresponder, crie uma nova categoria apropriada.
     3. Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
-        - Resumos detalhados (summaries): Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um, que será usada em tooltips.
-        - Flashcards: SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível. Extraia todos os conceitos, termos, datas e fatos importantes. Não hesite em criar muitos flashcards se o conteúdo for denso.
-        - Questões (questions): CRIE O MÁXIMO DE QUESTÕES DE MÚLTIPLA ESCOLHA POSSÍVEL (mínimo de 3, idealmente mais de 10 se o texto for longo). Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis para ajudar a resolver a questão.
-    4. Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça uma frase curta e descritiva que servirá de prompt para gerar a imagem do mapa mental.
+        - Resumos detalhados (summaries): Gere resumos com uma extensão média, aprofundando os principais conceitos de forma didática. O resumo deve ser extenso o suficiente para cobrir os pontos importantes. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a didática e a clareza do conteúdo do resumo.
+        - Flashcards: SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível.
+        - Questões (questions): CRIE O MÁXIMO DE QUESTÕES DE MÚLTIPLA ESCOLHA POSSÍVEL. Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta.
+    4. Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça um título curto e descritivo (máximo 5 palavras) e uma frase-prompt para gerar a imagem.
     5. Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
 
     Texto-fonte para análise:
@@ -112,7 +112,7 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
                     type: Type.OBJECT,
                     properties: {
                         title: { type: Type.STRING },
-                        content: { type: Type.STRING },
+                        content: { type: Type.STRING, description: "Conteúdo formatado em markdown para clareza." },
                         keyPoints: {
                             type: Type.ARRAY,
                             items: {
@@ -149,7 +149,7 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
                         options: { type: Type.ARRAY, items: { type: Type.STRING } },
                         correctAnswer: { type: Type.STRING },
                         explanation: { type: Type.STRING },
-                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis e sutis sobre a questão, que ajudem no raciocínio." },
                     },
                     required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
                 }
@@ -157,10 +157,14 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
             mindMapTopics: {
                 type: Type.ARRAY,
                 items: {
-                    type: Type.STRING,
-                    description: "Uma frase-prompt curta para gerar um mapa mental sobre um sub-tópico."
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING, description: "Um título curto para o mapa mental."},
+                        prompt: { type: Type.STRING, description: "Uma frase-prompt para gerar o mapa mental."}
+                    },
+                    required: ['title', 'prompt']
                 },
-                description: "Uma lista de prompts para gerar mapas mentais para os sub-tópicos chave."
+                description: "Uma lista de títulos e prompts para gerar mapas mentais."
             }
         },
         required: ['title', 'summary', 'materia', 'topic', 'summaries', 'flashcards', 'questions', 'mindMapTopics']
@@ -186,13 +190,14 @@ export const generateImageForMindMap = async (prompt: string): Promise<{ base64I
     const reinforcedPrompt = `
     Gere uma imagem para um mapa mental claro, bem estruturado e visualmente agradável sobre o conceito central: "${prompt}".
 
-    **REQUISITOS OBRIGATÓRIOS E CRÍTICOS:**
+    **REQUISITOS OBRIGATÓRIOS E CRÍTICOS - SIGA ESTRITAMENTE:**
     1.  **IDIOMA:** Todo e qualquer texto na imagem DEVE estar em **Português do Brasil (pt-BR)**.
-    2.  **ORTOGRAFIA E GRAMÁTICA:** A correção é absoluta. Verifique cuidadosamente a **acentuação** (crases, acentos agudos, circunflexos), pontuação e grafia de todas as palavras.
-    3.  **SIGLAS:** Todas as siglas devem ser escritas corretamente (ex: BCB, COPOM, SFN).
-    4.  **CLAREZA:** A estrutura deve ser lógica e fácil de ler. Use fontes legíveis e um layout limpo.
+    2.  **PRECISÃO LINGUÍSTICA:** A correção ortográfica e gramatical é sua prioridade máxima.
+        - **VERIFICAÇÃO:** Antes de gerar a imagem, liste internamente todas as palavras e siglas que serão usadas. Verifique DUAS VEZES a **acentuação** (crases, acentos agudos, circunflexos), pontuação e a grafia de cada uma.
+        - **SIGLAS:** Todas as siglas devem ser escritas corretamente (ex: BCB, COPOM, SFN).
+    3.  **CLAREZA:** A estrutura deve ser lógica e fácil de ler. Use fontes legíveis e um layout limpo, com cores contrastantes.
 
-    Sua prioridade máxima é a **precisão linguística** e a clareza visual. A imagem será rejeitada se contiver erros de português.
+    A imagem será considerada uma falha e rejeitada se contiver qualquer erro de português, por menor que seja. Preste atenção absoluta à escrita correta.
     `;
     try {
         const response: GenerateContentResponse = await getModel().generateContent({
@@ -236,15 +241,15 @@ export const getPersonalizedStudyPlan = async (
         - **Estatísticas de Desempenho (Questões):** ${JSON.stringify(userStats)}
         - **Itens Favoritados:** ${JSON.stringify(favorites)}
         - **Itens Lidos:** ${JSON.stringify(read)}
-        - **Conteúdo Disponível:** 
-          - Resumos: ${JSON.stringify(content.summaries.map(s => ({id: s.id, title: s.title, topic: s.source?.topic})))}
-          - Flashcards: ${JSON.stringify(content.flashcards.map(f => ({id: f.id, front: f.front, topic: f.source?.topic})))}
-          - Cadernos: ${JSON.stringify(content.notebooks.map(n => ({id: n.id, name: n.name})))}
+        - **Conteúdo Disponível (com temperatura = hot_votes - cold_votes):** 
+          - Resumos: ${JSON.stringify(content.summaries.map(s => ({id: s.id, title: s.title, topic: s.source?.topic, temp: (s.hot_votes || 0) - (s.cold_votes || 0) })))}
+          - Flashcards: ${JSON.stringify(content.flashcards.map(f => ({id: f.id, front: f.front, topic: f.source?.topic, temp: (f.hot_votes || 0) - (f.cold_votes || 0) })))}
+          - Cadernos: ${JSON.stringify(content.notebooks.map(n => ({id: n.id, name: n.name, temp: (n.hot_votes || 0) - (n.cold_votes || 0) })))}
 
         **Instruções para o Plano:**
         1.  **Foco Principal:** Identifique os tópicos com o menor percentual de acerto e priorize-os.
-        2.  **Sugestões de Revisão:** Sugira a revisão de resumos e flashcards, especialmente os que foram favoritados ou que pertencem a tópicos de baixo desempenho.
-        3.  **Sugestões de Prática:** Recomende a prática com cadernos de questões, dando preferência aos que cobrem as áreas de maior dificuldade.
+        2.  **Sugestões de Revisão:** Sugira a revisão de resumos e flashcards, especialmente os que foram favoritados ou que pertencem a tópicos de baixo desempenho. Dê preferência a materiais bem avaliados pela comunidade (alta temperatura).
+        3.  **Sugestões de Prática:** Recomende a prática com cadernos de questões que cobrem as áreas de maior dificuldade e que sejam bem avaliados.
         4.  **Formato OBRIGATÓRIO:** Formate a resposta em markdown. Use a seguinte sintaxe para criar links DIRETAMENTE para o conteúdo na plataforma:
             - Para Resumos: \`#[nome do resumo]\`
             - Para Flashcards: \`![frente do flashcard]\`
@@ -353,7 +358,7 @@ export const generateSpecificContent = async (
             }
         },
         questions: {
-            instruction: `Gere o máximo de questões de múltipla escolha possível sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Cada questão deve ter 4 opções, resposta correta, explicação e duas dicas.`,
+            instruction: `Gere o máximo de questões de múltipla escolha possível sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Cada questão deve ter 4 opções, resposta correta, explicação e duas dicas sutis que ajudem no raciocínio.`,
             schema: {
                 type: Type.ARRAY,
                 items: {
@@ -364,7 +369,7 @@ export const generateSpecificContent = async (
                         options: { type: Type.ARRAY, items: { type: Type.STRING } },
                         correctAnswer: { type: Type.STRING },
                         explanation: { type: Type.STRING },
-                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis e sutis sobre a questão." },
                     },
                     required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
                 }

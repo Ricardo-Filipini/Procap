@@ -333,11 +333,11 @@ export const getInitialData = async (): Promise<AppData> => {
         const [
             users,
             sources,
-            summaries,
+            rawSummaries,
             flashcards,
             rawQuestions,
-            mind_maps,
-            audio_summaries,
+            rawMindMaps,
+            rawAudioSummaries,
             chatMessages,
             questionNotebooks,
             userMessageVotes,
@@ -362,14 +362,26 @@ export const getInitialData = async (): Promise<AppData> => {
             fetchTable('user_question_answers')
         ]);
         
+        const summaries = (rawSummaries as any[]).map(s => ({
+            ...s,
+            keyPoints: s.key_points || [],
+        }));
+
         const questions = (rawQuestions as any[]).map(q => ({
             ...q,
-            questionText: q.question_text,
+            questionText: q.question_text || '',
             correctAnswer: q.correct_answer,
-            keyPoints: q.key_points,
-            relatedTopics: q.related_topics,
-            imageUrl: q.image_url,
-            audioUrl: q.audio_url
+            options: q.options || [],
+        }));
+        
+         const mind_maps = (rawMindMaps as any[]).map(m => ({
+            ...m,
+            imageUrl: m.image_url,
+        }));
+        
+        const audio_summaries = (rawAudioSummaries as any[]).map(a => ({
+            ...a,
+            audioUrl: a.audio_url,
         }));
 
         const sourcesData = (sources as Source[]).map(source => ({
@@ -498,11 +510,22 @@ export const addGeneratedContent = async (sourceId: string, generated: any): Pro
         mindMapsPayload.length > 0 ? addContent<MindMap>('mind_maps', mindMapsPayload) : Promise.resolve([])
     ]);
 
+    const mappedQuestions = ((newQuestions || []) as any[]).map(q => ({
+        ...q,
+        questionText: q.question_text,
+        correctAnswer: q.correct_answer,
+    }));
+    
+    const mappedMindMaps = ((newMindMaps || []) as any[]).map(m => ({
+        ...m,
+        imageUrl: m.image_url,
+    }));
+
     return {
         summaries: (newSummaries || []) as Summary[],
         flashcards: (newFlashcards || []) as Flashcard[],
-        questions: (newQuestions || []) as Question[],
-        mind_maps: (newMindMaps || []) as MindMap[]
+        questions: mappedQuestions as Question[],
+        mind_maps: mappedMindMaps as MindMap[]
     };
 }
 export const addSourceComment = async (source: Source, newComment: Comment): Promise<Source | null> => {
@@ -630,7 +653,21 @@ export const addNotebookComment = async (notebook: QuestionNotebook, newComment:
     return updateQuestionNotebook(notebook.id, { comments: updatedComments });
 };
 export const addAudioSummary = async (audioSummary: Partial<AudioSummary>): Promise<AudioSummary | null> => {
-    return addContent<AudioSummary>('audio_summaries', audioSummary) as Promise<AudioSummary | null>;
+    if (!checkSupabase()) return null;
+    const { audioUrl, ...rest } = audioSummary;
+    const payload = { ...rest, audio_url: audioUrl };
+    
+    const { data, error } = await supabase!.from('audio_summaries').insert(payload).select().single();
+    if (error) {
+        console.error(`Error adding to audio_summaries:`, error.message);
+        return null;
+    }
+
+    if (data) {
+        const { audio_url, ...mappedRest } = data;
+        return { ...mappedRest, audioUrl: audio_url } as AudioSummary;
+    }
+    return null;
 };
 export const upsertUserQuestionAnswer = async (answer: Partial<UserQuestionAnswer>): Promise<UserQuestionAnswer | null> => {
     if (!checkSupabase()) return null;

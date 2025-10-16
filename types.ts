@@ -22,6 +22,7 @@ export interface User {
     questionsAnswered: number;
     correctAnswers: number;
     topicPerformance: { [topic: string]: { correct: number; total: number } };
+    streak?: number;
   };
 }
 
