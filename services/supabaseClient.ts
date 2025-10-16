@@ -3,7 +3,7 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v3) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v3.1) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -18,6 +18,10 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 -- 4. COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 -- 5. Clique em "RUN".
 --
+-- O QUE HÁ DE NOVO (v3.1):
+--   - A função RPC para votos do chat foi renomeada de 'increment_vote'
+--     para 'increment_message_vote' para corresponder ao que o código-fonte
+--     espera, corrigindo o bug de votos que não eram salvos.
 -- =================================================================
 
 -- Habilita a extensão pgcrypto se ainda não estiver habilitada
@@ -281,8 +285,9 @@ DROP POLICY IF EXISTS "Users can manage their own question answers." ON public.u
 CREATE POLICY "Users can manage their own question answers." ON public.user_question_answers FOR ALL USING (true);
 
 
--- 9. Funções RPC (sem alterações, apenas garantindo que existam)
-CREATE OR REPLACE FUNCTION increment_vote( message_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE format( 'UPDATE public.chat_messages SET %I = %I + %s WHERE id = %L', vote_type, vote_type, increment_value, message_id_param ); END; $$;
+-- 9. Funções RPC
+DROP FUNCTION IF EXISTS public.increment_vote(uuid, text, integer); -- Remove a função antiga se existir
+CREATE OR REPLACE FUNCTION increment_message_vote( message_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE format( 'UPDATE public.chat_messages SET %I = %I + %s WHERE id = %L', vote_type, vote_type, increment_value, message_id_param ); END; $$;
 CREATE OR REPLACE FUNCTION increment_source_vote( source_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE format( 'UPDATE public.sources SET %I = %I + %s WHERE id = %L', vote_type, vote_type, increment_value, source_id_param ); END; $$;
 CREATE OR REPLACE FUNCTION increment_content_vote( table_name TEXT, content_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE format( 'UPDATE public.%I SET %I = %I + %s WHERE id = %L', table_name, vote_type, vote_type, increment_value, content_id_param ); END; $$;
 CREATE OR REPLACE FUNCTION increment_notebook_vote( notebook_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN EXECUTE format( 'UPDATE public.question_notebooks SET %I = %I + %s WHERE id = %L', vote_type, vote_type, increment_value, notebook_id_param ); END; $$;

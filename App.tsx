@@ -6,7 +6,10 @@ import { INITIAL_APP_DATA, VIEWS } from './constants';
 import { getInitialData, createUser, updateUser as supabaseUpdateUser } from './services/supabaseClient';
 
 const App: React.FC = () => {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(() => {
+    const savedTheme = localStorage.getItem('procap_theme') as Theme | null;
+    return savedTheme || 'light';
+  });
   const communityView = VIEWS.find(v => v.name === 'Comunidade') || VIEWS[0];
   const [activeView, setActiveView] = useState<View>(communityView);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
@@ -71,6 +74,7 @@ const App: React.FC = () => {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    localStorage.setItem('procap_theme', theme);
   }, [theme]);
 
   const handleLogin = async (pseudonym: string, password?: string): Promise<string | null> => {
