@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { Theme, View, AppData, User, Summary, Flashcard, Question, ChatMessage, Comment, Source, AudioSummary, MindMap, UserMessageVote, UserSourceVote, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../types';
 import { VIEWS, ACHIEVEMENTS } from '../constants';
 // Fix: Import Bars3Icon.
-import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, ClockIcon, PlusIcon, MinusIcon, PaperClipIcon, GoogleIcon, CloudArrowUpIcon, BookOpenIcon, PencilIcon, FireIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, FunnelIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, Squares2X2Icon, Bars3Icon, QuestionMarkCircleIcon, ShareIcon, SpeakerWaveIcon, CheckCircleIcon, Cog6ToothIcon } from './Icons';
+import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, ClockIcon, PlusIcon, MinusIcon, PaperClipIcon, GoogleIcon, CloudArrowUpIcon, BookOpenIcon, PencilIcon, FireIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, FunnelIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, Squares2X2Icon, Bars3Icon, QuestionMarkCircleIcon, ShareIcon, SpeakerWaveIcon, CheckCircleIcon, Cog6ToothIcon, MagnifyingGlassIcon } from './Icons';
 import { getSimpleChatResponse, getPersonalizedStudyPlan, processAndGenerateAllContentFromSource, generateImageForMindMap, filterItemsByPrompt, generateSpecificContent, generateNotebookName, generateMoreContentFromSource, generateContentFromPromptAndSources } from '../services/geminiService';
 // Fix: Import addCommentToContent from supabaseClient.
 import { addChatMessage, supabase, addSource, addGeneratedContent, addSourceComment, updateSource, deleteSource, upsertUserContentInteraction, incrementContentVote, upsertUserVote, incrementVoteCount, addQuestionNotebook, updateQuestionNotebook, deleteQuestionNotebook, addNotebookComment, upsertUserQuestionAnswer, addCommentToContent, clearNotebookAnswers, updateContentComments, updateUser as supabaseUpdateUser, addAudioSummary, appendGeneratedContentToSource } from '../services/supabaseClient';
@@ -202,8 +202,19 @@ const ContentToolbar: React.FC<{
     onGenerate?: (prompt: string) => void,
     isFiltering?: boolean,
     onClearFilter?: () => void,
-}> = ({ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter, onGenerate, isFiltering, onClearFilter }) => {
+    supportedSorts?: SortOption[],
+}> = ({ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter, onGenerate, isFiltering, onClearFilter, supportedSorts }) => {
     const [prompt, setPrompt] = useState('');
+    
+    const allSorts: Record<SortOption, { title: string, icon: string }> = {
+        temp: { title: "Temperatura", icon: "🌡️" },
+        time: { title: "Data", icon: "🕐" },
+        subject: { title: "Matéria", icon: "📚" },
+        user: { title: "Usuário", icon: "👤" },
+        source: { title: "Fonte", icon: "📄" },
+    };
+
+    const availableSorts = supportedSorts ? supportedSorts.map(s => ({ key: s, ...allSorts[s] })) : Object.entries(allSorts).map(([key, value]) => ({ key: key as SortOption, ...value }));
     
     return (
         <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark mb-6 space-y-4">
@@ -233,11 +244,9 @@ const ContentToolbar: React.FC<{
                 <div className="flex items-center gap-4">
                     <span className="font-semibold">Ordenar por:</span>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => setSort('temp')} title="Temperatura" className={`p-2 rounded-full ${sort === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
-                        <button onClick={() => setSort('time')} title="Data" className={`p-2 rounded-full ${sort === 'time' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
-                        <button onClick={() => setSort('subject')} title="Matéria" className={`p-2 rounded-full ${sort === 'subject' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>📚</button>
-                        <button onClick={() => setSort('user')} title="Usuário" className={`p-2 rounded-full ${sort === 'user' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>👤</button>
-                        <button onClick={() => setSort('source')} title="Fonte" className={`p-2 rounded-full ${sort === 'source' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>📄</button>
+                        {availableSorts.map(s => (
+                             <button key={s.key} onClick={() => setSort(s.key)} title={s.title} className={`p-2 rounded-full ${sort === s.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{s.icon}</button>
+                        ))}
                     </div>
                 </div>
                 {filter !== undefined && setFilter && favoritesOnly !== undefined && setFavoritesOnly && (
@@ -1293,12 +1302,16 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
 };
 
 const NotebookGridView: React.FC<{
-    allItems: (Question & { user_id: string, created_at: string})[];
+    notebooks: QuestionNotebook[];
     appData: AppData;
     setAppData: React.Dispatch<React.SetStateAction<AppData>>;
     currentUser: User;
+    updateUser: (user: User) => void;
     onSelectNotebook: (notebook: QuestionNotebook | 'all') => void;
-}> = ({ allItems, appData, setAppData, currentUser, onSelectNotebook }) => {
+    handleNotebookInteractionUpdate: (notebookId: string, update: Partial<UserNotebookInteraction>) => void;
+    handleNotebookVote: (notebookId: string, type: 'hot' | 'cold', increment: 1 | -1) => void;
+    setCommentingOnNotebook: (notebook: QuestionNotebook) => void;
+}> = ({ notebooks, appData, setAppData, currentUser, updateUser, onSelectNotebook, handleNotebookInteractionUpdate, handleNotebookVote, setCommentingOnNotebook }) => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     const favoritedQuestionIds = useMemo(() => {
@@ -1306,6 +1319,75 @@ const NotebookGridView: React.FC<{
             .filter(i => i.user_id === currentUser.id && i.content_type === 'question' && i.is_favorite)
             .map(i => i.content_id);
     }, [appData.userContentInteractions, currentUser.id]);
+    
+    const renderNotebook = (notebook: QuestionNotebook | 'all' | 'new' | 'favorites') => {
+        if (notebook === 'new') {
+            return (
+                 <div 
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="flex flex-col items-center justify-center text-center p-6 rounded-lg shadow-sm border-2 border-dashed border-border-light dark:border-border-dark cursor-pointer hover:shadow-md hover:border-primary-light dark:hover:border-primary-dark transition-all min-h-[220px]"
+                >
+                    <PlusIcon className="w-10 h-10 text-primary-light dark:text-primary-dark mb-2"/>
+                    <h3 className="text-lg font-bold">Novo Caderno</h3>
+                </div>
+            );
+        }
+        
+        let id, name, questionCount, item, contentType, interactions, onSelect;
+        
+        if (notebook === 'all') {
+            id = 'all_notebooks';
+            name = "Todas as Questões";
+            questionCount = appData.sources.flatMap(s => s.questions).length;
+            onSelect = () => onSelectNotebook('all');
+        } else if (notebook === 'favorites') {
+             if (favoritedQuestionIds.length === 0) return null;
+             id = 'favorites_notebook';
+             name = "⭐ Questões Favoritas";
+             questionCount = favoritedQuestionIds.length;
+             onSelect = () => {
+                 const favoriteNotebook: QuestionNotebook = {
+                    id: 'favorites_notebook', user_id: currentUser.id, name: '⭐ Questões Favoritas', question_ids: favoritedQuestionIds,
+                    created_at: new Date().toISOString(), hot_votes: 0, cold_votes: 0, comments: []
+                 };
+                 onSelectNotebook(favoriteNotebook);
+             };
+        } else {
+            id = notebook.id;
+            name = notebook.name;
+            questionCount = notebook.question_ids.length;
+            item = notebook;
+            contentType = 'question_notebook';
+            interactions = appData.userNotebookInteractions.filter(i => i.user_id === currentUser.id);
+            onSelect = () => onSelectNotebook(notebook);
+        }
+
+        return (
+            <div key={id} className="bg-card-light dark:bg-card-dark rounded-lg shadow-sm border border-border-light dark:border-border-dark flex flex-col">
+                <div onClick={onSelect} className="p-4 flex-grow cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-t-lg transition-colors">
+                    <h4 className="font-bold">{name}</h4>
+                    {notebook !== 'all' && notebook !== 'favorites' && (
+                        <p className="text-xs text-gray-400 mt-1">por: {appData.users.find(u => u.id === notebook.user_id)?.pseudonym || 'Desconhecido'}</p>
+                    )}
+                    <p className="text-right font-bold text-primary-light dark:text-primary-dark mt-4">{questionCount} Questões</p>
+                </div>
+                {item && contentType && interactions && (
+                    <div className="p-2 border-t border-border-light dark:border-border-dark">
+                        <ContentActions
+                            item={item}
+                            contentType={contentType as 'question_notebook'}
+                            currentUser={currentUser}
+                            interactions={interactions}
+                            onVote={handleNotebookVote}
+                            onToggleRead={(id, state) => handleNotebookInteractionUpdate(id, { is_read: !state })}
+                            onToggleFavorite={(id, state) => handleNotebookInteractionUpdate(id, { is_favorite: !state })}
+                            onComment={() => setCommentingOnNotebook(item)}
+                        />
+                    </div>
+                )}
+            </div>
+        )
+    };
 
     return (
         <>
@@ -1317,66 +1399,15 @@ const NotebookGridView: React.FC<{
                 currentUser={currentUser}
             />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {/* Card para Novo Caderno */}
-                <div 
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="flex flex-col items-center justify-center text-center p-6 rounded-lg shadow-sm border-2 border-dashed border-border-light dark:border-border-dark cursor-pointer hover:shadow-md hover:border-primary-light dark:hover:border-primary-dark transition-all min-h-[120px]"
-                >
-                    <PlusIcon className="w-10 h-10 text-primary-light dark:text-primary-dark mb-2"/>
-                    <h3 className="text-lg font-bold">Novo Caderno</h3>
-                </div>
-
-                {/* Card para Todas as Questões */}
-                <div 
-                    onClick={() => onSelectNotebook('all')}
-                    className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark cursor-pointer hover:shadow-md hover:border-primary-light dark:hover:border-primary-dark transition-all flex flex-col justify-between min-h-[120px]"
-                >
-                    <div>
-                        <h3 className="text-lg font-bold">Todas as Questões</h3>
-                        <p className="text-sm text-gray-500">Acesse todas as questões disponíveis</p>
-                    </div>
-                    <p className="text-right font-bold text-primary-light dark:text-primary-dark mt-2">{allItems.length} Questões</p>
-                </div>
-
-                {/* Card para Favoritas */}
-                {favoritedQuestionIds.length > 0 && (
-                     <div 
-                        onClick={() => {
-                            const favoriteNotebook: QuestionNotebook = {
-                                id: 'favorites_notebook', // Special ID
-                                user_id: currentUser.id,
-                                name: '⭐ Questões Favoritas',
-                                question_ids: favoritedQuestionIds,
-                                created_at: new Date().toISOString(),
-                                hot_votes: 0, cold_votes: 0, comments: []
-                            };
-                            onSelectNotebook(favoriteNotebook);
-                        }}
-                        className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark cursor-pointer hover:shadow-md hover:border-yellow-500 dark:hover:border-yellow-400 transition-all flex flex-col justify-between min-h-[120px]"
-                    >
-                        <div>
-                            <h3 className="text-lg font-bold">⭐ Questões Favoritas</h3>
-                            <p className="text-sm text-gray-500">Suas questões mais importantes</p>
-                        </div>
-                        <p className="text-right font-bold text-yellow-500 dark:text-yellow-400 mt-2">{favoritedQuestionIds.length} Questões</p>
-                    </div>
-                )}
-
-
-                {/* Cards de Cadernos existentes */}
-                {appData.questionNotebooks.map(notebook => (
-                    <div key={notebook.id} onClick={() => onSelectNotebook(notebook)} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark cursor-pointer hover:shadow-md transition-all flex flex-col justify-between min-h-[120px]">
-                        <div>
-                            <h4 className="font-bold">{notebook.name}</h4>
-                            <p className="text-xs text-gray-400 mt-1">por: {appData.users.find(u => u.id === notebook.user_id)?.pseudonym || 'Desconhecido'}</p>
-                        </div>
-                        <p className="text-right font-bold text-primary-light dark:text-primary-dark mt-2">{notebook.question_ids.length} Questões</p>
-                    </div>
-                ))}
+                {renderNotebook('new')}
+                {renderNotebook('all')}
+                {renderNotebook('favorites')}
+                {notebooks.map(notebook => renderNotebook(notebook))}
             </div>
         </>
     );
 };
+
 
 const NotebookDetailView: React.FC<{
     notebook: QuestionNotebook | 'all';
@@ -1632,8 +1663,8 @@ const NotebookDetailView: React.FC<{
                 onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_favorite: !state })}
                 onComment={() => setCommentingOnQuestion(currentQuestion)}
                 extraActions={
-                    <button onClick={() => setIsQuestionStatsModalOpen(true)} className="text-gray-500 hover:text-primary-light flex items-center gap-1" title="Estatísticas da questão">
-                        <Cog6ToothIcon className="w-5 h-5"/>
+                    <button onClick={() => setIsQuestionStatsModalOpen(true)} className="text-gray-500 hover:text-primary-light flex items-center gap-1" title="Ver estatísticas da questão">
+                        <MagnifyingGlassIcon className="w-5 h-5"/>
                     </button>
                 }
             />
@@ -1675,7 +1706,9 @@ const NotebookDetailView: React.FC<{
 
 const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created_at: string})[]; appData: AppData; setAppData: React.Dispatch<React.SetStateAction<AppData>>; currentUser: User; updateUser: (user:User) => void; filterTerm: string | null; clearFilter: () => void; }> = ({ allItems, appData, setAppData, currentUser, updateUser, filterTerm, clearFilter }) => {
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
-
+    const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
+    const [sort, setSort] = useState<SortOption>('time');
+    
     useEffect(() => {
         if (filterTerm) {
             const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === filterTerm.toLowerCase());
@@ -1687,6 +1720,95 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
             clearFilter();
         }
     }, [filterTerm, clearFilter, appData.questionNotebooks]);
+
+    const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
+        // Optimistic UI update
+        let newInteractions = [...appData.userNotebookInteractions];
+        const existingIndex = newInteractions.findIndex(i => i.user_id === currentUser.id && i.notebook_id === notebookId);
+        if (existingIndex > -1) {
+            newInteractions[existingIndex] = { ...newInteractions[existingIndex], ...update };
+        } else {
+            newInteractions.push({ id: `temp-nb-${Date.now()}`, user_id: currentUser.id, notebook_id: notebookId, is_read: false, is_favorite: false, hot_votes: 0, cold_votes: 0, ...update });
+        }
+        setAppData(prev => ({...prev, userNotebookInteractions: newInteractions }));
+
+        // DB update
+        const result = await upsertUserVote('user_notebook_interactions', { user_id: currentUser.id, notebook_id: notebookId, ...update }, ['user_id', 'notebook_id']);
+        if (!result) {
+            console.error("Failed to update notebook interaction.");
+            // Revert on failure
+            setAppData(appData);
+        }
+    };
+    
+    const handleNotebookVote = async (notebookId: string, type: 'hot' | 'cold', increment: 1 | -1) => {
+        const interaction = appData.userNotebookInteractions.find(i => i.user_id === currentUser.id && i.notebook_id === notebookId);
+        const currentVoteCount = (type === 'hot' ? interaction?.hot_votes : interaction?.cold_votes) || 0;
+        if (increment === -1 && currentVoteCount <= 0) return;
+
+        handleNotebookInteractionUpdate(notebookId, { [`${type}_votes`]: currentVoteCount + increment });
+        
+        setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
+        
+        await incrementVoteCount('increment_notebook_vote', notebookId, `${type}_votes`, increment);
+        
+        const notebook = appData.questionNotebooks.find(n => n.id === notebookId);
+        if (notebook) {
+            const authorId = notebook.user_id;
+            if (authorId !== currentUser.id) {
+                const author = appData.users.find(u => u.id === authorId);
+                if (author) {
+                    const xpChange = (type === 'hot' ? 1 : -1) * increment;
+                    const updatedAuthor = { ...author, xp: author.xp + xpChange };
+                    const result = await supabaseUpdateUser(updatedAuthor);
+                    if (result) {
+                        setAppData(prev => ({...prev, users: prev.users.map(u => u.id === result.id ? result : u)}));
+                    }
+                }
+            }
+        }
+    };
+
+     const handleNotebookCommentAction = async (action: 'add' | 'vote', payload: any) => {
+        if (!commentingOnNotebook) return;
+        let updatedComments = [...commentingOnNotebook.comments];
+        if (action === 'add') {
+            updatedComments.push({ id: `c_${Date.now()}`, authorId: currentUser.id, authorPseudonym: currentUser.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 });
+        } else {
+             const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
+            if (commentIndex > -1) updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+        }
+        
+        const success = await updateContentComments('question_notebooks', commentingOnNotebook.id, updatedComments);
+        if (success) {
+            const updatedItem = {...commentingOnNotebook, comments: updatedComments };
+            setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === updatedItem.id ? updatedItem : n) }));
+            setCommentingOnNotebook(updatedItem);
+        }
+    };
+    
+    const processedNotebooks = useMemo(() => {
+        const notebooks = [...appData.questionNotebooks];
+        switch (sort) {
+            case 'time':
+                return notebooks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            case 'temp':
+                 return notebooks.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
+            case 'user':
+                const grouped = notebooks.reduce((acc, nb) => {
+                    const key = nb.user_id || 'unknown';
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(nb);
+                    return acc;
+                }, {} as Record<string, QuestionNotebook[]>);
+                Object.values(grouped).forEach(group => {
+                     group.sort((a,b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
+                });
+                return grouped;
+            default:
+                return notebooks;
+        }
+    }, [appData.questionNotebooks, sort]);
 
 
     if (selectedNotebook) {
@@ -1701,13 +1823,51 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
         />
     }
 
-    return <NotebookGridView 
-        allItems={allItems}
-        appData={appData}
-        setAppData={setAppData}
-        currentUser={currentUser}
-        onSelectNotebook={setSelectedNotebook}
-    />;
+    const renderGrid = (items: QuestionNotebook[]) => (
+        <NotebookGridView 
+            notebooks={items}
+            appData={appData}
+            setAppData={setAppData}
+            currentUser={currentUser}
+            updateUser={updateUser}
+            onSelectNotebook={setSelectedNotebook}
+            handleNotebookInteractionUpdate={handleNotebookInteractionUpdate}
+            handleNotebookVote={handleNotebookVote}
+            setCommentingOnNotebook={setCommentingOnNotebook}
+        />
+    )
+
+    return (
+        <>
+            <CommentsModal 
+                isOpen={!!commentingOnNotebook}
+                onClose={() => setCommentingOnNotebook(null)}
+                comments={commentingOnNotebook?.comments || []}
+                onAddComment={(text) => handleNotebookCommentAction('add', { text })}
+                onVoteComment={(id, type) => handleNotebookCommentAction('vote', { commentId: id, voteType: type })}
+                contentTitle={commentingOnNotebook?.name || ''}
+            />
+            <ContentToolbar 
+                sort={sort} 
+                setSort={setSort} 
+                supportedSorts={['time', 'temp', 'user']}
+            />
+            
+            <div className="space-y-6">
+                {Array.isArray(processedNotebooks) 
+                    ? renderGrid(processedNotebooks)
+                    : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, any[]]) => (
+                        <details key={groupKey} open className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                             <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                            <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                               {renderGrid(items)}
+                            </div>
+                        </details>
+                    ))
+                }
+            </div>
+        </>
+    );
 };
 
 const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_at: string})[]; appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>; currentUser: User; updateUser: (user: User) => void; }> = ({ allItems, appData, setAppData, currentUser, updateUser }) => {
@@ -1922,10 +2082,17 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
         <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
             <h3 className="text-xl font-bold mb-2">{audio.title}</h3>
             <p className="text-xs text-gray-500 mb-4">{audio.source?.topic}</p>
-            <audio controls className="w-full">
-                <source src={audio.audioUrl} type={audio.audioUrl.includes('.mp4') ? 'video/mp4' : 'audio/mpeg'} />
-                Seu navegador não suporta este elemento de áudio.
-            </audio>
+            {audio.audioUrl.toLowerCase().endsWith('.mp4') ? (
+                <video controls className="w-full rounded-md max-h-72">
+                    <source src={audio.audioUrl} type="video/mp4" />
+                    Seu navegador não suporta o elemento de vídeo.
+                </video>
+            ) : (
+                <audio controls className="w-full">
+                    <source src={audio.audioUrl} type="audio/mpeg" />
+                    Seu navegador não suporta este elemento de áudio.
+                </audio>
+            )}
             <ContentActions
                 item={audio} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
                 onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, contentType, id, type, inc)}
@@ -2598,6 +2765,7 @@ const SourcesView: React.FC<{
     setProcessingTasks: React.Dispatch<React.SetStateAction<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>>
 }> = ({ appData, setAppData, currentUser, processingTasks, setProcessingTasks }) => {
     const [prompt, setPrompt] = useState<string>("");
+    const [title, setTitle] = useState<string>("");
     const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
     const [isSelectSourceModalOpen, setSelectSourceModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2662,14 +2830,16 @@ const SourcesView: React.FC<{
         }
 
         const taskId = `task_${Date.now()}`;
-        const taskName = attachedFiles.length > 0 ? attachedFiles.map(f => f.name).join(', ') : `Prompt: ${prompt.substring(0, 30)}...`;
+        const taskName = title.trim() || (attachedFiles.length > 0 ? attachedFiles.map(f => f.name).join(', ') : `Prompt: ${prompt.substring(0, 30)}...`);
         
         const currentFiles = [...attachedFiles];
         const currentPrompt = prompt;
+        const currentTitle = title;
 
         setProcessingTasks(prev => [...prev, { id: taskId, name: taskName, status: 'processing', message: 'Iniciando...' }]);
         setAttachedFiles([]);
         setPrompt("");
+        setTitle("");
 
         (async () => {
             const updateTask = (message: string, status?: 'processing' | 'success' | 'error') => {
@@ -2753,7 +2923,7 @@ const SourcesView: React.FC<{
                 }
 
                 updateTask("Finalizando...");
-                const sourcePayload: Partial<Source> = { user_id: currentUser.id, title: generatedData.title, summary: generatedData.summary, original_filename: finalOriginalFilenames, storage_path: finalStoragePaths, materia: generatedData.materia, topic: generatedData.topic, hot_votes: 0, cold_votes: 0, comments: [] };
+                const sourcePayload: Partial<Source> = { user_id: currentUser.id, title: currentTitle.trim() || generatedData.title, summary: generatedData.summary, original_filename: finalOriginalFilenames, storage_path: finalStoragePaths, materia: generatedData.materia, topic: generatedData.topic, hot_votes: 0, cold_votes: 0, comments: [] };
                 const newSource = await addSource(sourcePayload);
                 if (!newSource) throw new Error("Falha ao criar o registro da fonte.");
                 
@@ -2883,23 +3053,76 @@ const SourcesView: React.FC<{
     const handleExploreSource = async (userPrompt: string) => {
         if (!exploringSource) return;
 
+        const taskId = `explore_${exploringSource.id}_${Date.now()}`;
+        const updateTask = (message: string, status?: 'processing' | 'success' | 'error') => {
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message, ...(status && { status }) } : t));
+        };
+        
+        const source = exploringSource; // Capture the source before closing the modal
+        setExploringSource(null); // Close modal immediately
+        setProcessingTasks(prev => [...prev, { id: taskId, name: `Explorando: ${source.title}`, status: 'processing', message: 'Iniciando...' }]);
+
         try {
-            const source = exploringSource;
-            // Simplified context for now; a more robust solution might fetch full text
-            const textContent = `Título: ${source.title}\nResumo: ${source.summary}`; 
+            updateTask("Buscando e lendo o arquivo original...");
+            let textContent = '';
+            if (source.storage_path && source.storage_path.length > 0) {
+                const fileContents = await Promise.all(source.storage_path.map(async (path) => {
+                    if (!supabase) return "";
+                    const { data: { publicUrl } } = supabase.storage.from('sources').getPublicUrl(path);
+                    if (!publicUrl) return "";
+                    
+                    const response = await fetch(publicUrl);
+                    if (!response.ok) return "";
+
+                    const blob = await response.blob();
+                    const fileName = path.split('/').pop() || 'file';
+                    
+                    if (fileName.endsWith('.txt')) {
+                        return blob.text();
+                    }
+                    if (fileName.endsWith('.pdf')) {
+                        const typedarray = new Uint8Array(await blob.arrayBuffer());
+                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                        let text = '';
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const content = await page.getTextContent();
+                            text += content.items.map((item: any) => item.str).join(' ') + '\n';
+                        }
+                        return text;
+                    }
+                    if (fileName.endsWith('.docx')) {
+                        const result = await mammoth.extractRawText({ arrayBuffer: await blob.arrayBuffer() });
+                        return result.value;
+                    }
+                    return "";
+                }));
+                textContent = fileContents.join('\n\n---\n\n');
+            } else {
+                // Fallback for sources created from prompt only
+                textContent = `Título: ${source.title}\nResumo: ${source.summary}`;
+            }
+            
+            if (!textContent.trim()) {
+                throw new Error("Não foi possível ler o conteúdo da fonte original.");
+            }
+
+            updateTask("Analisando com IA para encontrar conteúdo inédito...");
             const existingContent = {
                 summaries: source.summaries.map(s => ({ title: s.title, content: s.content })),
                 flashcards: source.flashcards.map(f => ({ front: f.front, back: f.back })),
                 questions: source.questions.map(q => ({ questionText: q.questionText })),
-            }
+            };
             const newContent = await generateMoreContentFromSource(textContent, existingContent, userPrompt);
 
             if (newContent.error) throw new Error(newContent.error);
             if (newContent.summaries.length === 0 && newContent.flashcards.length === 0 && newContent.questions.length === 0) {
-                alert("Nenhum conteúdo inédito encontrado para este tópico.");
+                updateTask("Nenhum conteúdo inédito encontrado.", 'success');
+                setTimeout(() => setProcessingTasks(prev => prev.filter(t => t.id !== taskId)), 5000);
                 return;
             }
 
+            updateTask("Salvando novo conteúdo...");
             const added = await appendGeneratedContentToSource(source.id, newContent);
             if (added) {
                 setAppData(prev => ({
@@ -2911,15 +3134,17 @@ const SourcesView: React.FC<{
                         questions: [...s.questions, ...added.newQuestions],
                     } : s)
                 }));
-                alert("Novo conteúdo adicionado com sucesso!");
+                updateTask("Novo conteúdo adicionado com sucesso!", 'success');
+                setTimeout(() => setProcessingTasks(prev => prev.filter(t => t.id !== taskId)), 5000);
+            } else {
+                 throw new Error("Falha ao salvar o novo conteúdo no banco de dados.");
             }
 
         } catch(error: any) {
-            alert(`Erro ao explorar a fonte: ${error.message}`);
-        } finally {
-            setExploringSource(null);
+            updateTask(`Erro: ${error.message}`, 'error');
+            console.error("Error exploring source:", error);
         }
-    }
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -2957,7 +3182,7 @@ const SourcesView: React.FC<{
     }, [appData.sources, displayMode]);
     
     const SourceItemContent: React.FC<{source: Source}> = ({ source }) => {
-        const isOwner = source.user_id === currentUser.id;
+        const canManage = source.user_id === currentUser.id || currentUser.pseudonym === 'admin';
         const isEditing = editingSource?.id === source.id;
         const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === source.id);
         
@@ -2984,7 +3209,7 @@ const SourcesView: React.FC<{
                         ) : (
                             <div className="flex items-center gap-2">
                                 <p className="text-xl font-bold">{source.title}</p>
-                                {isOwner && (
+                                {canManage && (
                                     <div className="flex items-center">
                                         <button onClick={(e) => { e.stopPropagation(); handleStartEditing(source); }} className="text-gray-400 hover:text-primary-light dark:hover:text-primary-dark transition-colors p-1" title="Editar título">
                                             <PencilIcon className="w-4 h-4" />
@@ -2993,7 +3218,7 @@ const SourcesView: React.FC<{
                                             <TrashIcon className="w-4 h-4" />
                                         </button>
                                         <button disabled={!!exploringSource} onClick={(e) => { e.stopPropagation(); setExploringSource(source); }} className="text-gray-400 hover:text-secondary-light dark:hover:text-secondary-dark transition-colors p-1 disabled:opacity-50 disabled:cursor-wait" title="Explorar mais conteúdo com IA">
-                                            {exploringSource?.id === source.id ? <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-4 h-4" />}
+                                            {processingTasks.some(t => t.id.startsWith(`explore_${source.id}`)) ? <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-4 h-4" />}
                                         </button>
                                     </div>
                                 )}
@@ -3069,6 +3294,16 @@ const SourcesView: React.FC<{
             <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
                 <h2 className="text-2xl font-bold mb-4">Adicionar Nova Fonte</h2>
                 <p className="text-sm text-gray-500 mb-4">Anexe arquivos (PDF, DOCX, TXT) ou descreva um tópico para que a IA gere um conjunto completo de materiais de estudo. O processamento é feito em segundo plano.</p>
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Título (opcional)</label>
+                    <input 
+                        type="text" 
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="A IA gera um se deixado em branco"
+                        className="w-full px-3 py-2 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md"
+                    />
+                </div>
                 <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -3100,7 +3335,7 @@ const SourcesView: React.FC<{
                     isOpen={!!exploringSource}
                     onClose={() => setExploringSource(null)}
                     sourceTitle={exploringSource.title}
-                    isLoading={false} // This can be managed internally if needed
+                    isLoading={processingTasks.some(t => t.id.startsWith(`explore_${exploringSource.id}`))}
                     onConfirm={handleExploreSource}
                 />
             )}

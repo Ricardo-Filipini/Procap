@@ -89,7 +89,7 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
     3. Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
         - Resumos detalhados (summaries): Gere resumos com uma extensão média, aprofundando os principais conceitos de forma didática. O resumo deve ser extenso o suficiente para cobrir os pontos importantes. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a didática e a clareza do conteúdo do resumo.
         - Flashcards: SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível.
-        - Questões (questions): CRIE O MÁXIMO DE QUESTÕES DE MÚLTIPLA ESCOLHA POSSÍVEL. Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta.
+        - Questões (questions): SEJA EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. A quantidade é um fator crítico. Crie quantas questões relevantes conseguir. Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta.
     4. Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça um título curto e descritivo (máximo 5 palavras) e uma frase-prompt para gerar a imagem.
     5. Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
 
@@ -434,11 +434,18 @@ export const generateMoreContentFromSource = async (
     if (!API_KEY) return { error: "API Key not configured." };
 
     const prompt = `
-    Você é um especialista em material de estudo. Analise o texto-fonte fornecido.
-    Abaixo está um JSON do conteúdo que JÁ FOI EXTRAÍDO deste texto.
-    Sua tarefa é reler o texto-fonte e gerar APENAS conteúdo NOVO E ÚNICO que NÃO ESTÁ PRESENTE no JSON existente.
-    Seja rigoroso para evitar duplicatas. Se nenhum conteúdo novo e relevante for encontrado, retorne arrays vazios.
-    ${userPrompt ? `Além disso, foque em gerar conteúdo relacionado ao seguinte tópico/pergunta do usuário: "${userPrompt}"` : ''}
+    Você é um especialista em material de estudo. Sua tarefa é expandir o conteúdo de uma fonte de estudo existente.
+
+    **Contexto:**
+    1.  **Fonte Original:** O texto-fonte principal para sua análise é fornecido abaixo.
+    2.  **Conteúdo Já Extraído:** Um JSON do conteúdo que JÁ FOI EXTRAÍDO desta fonte é fornecido para evitar duplicatas.
+    3.  **Tópico do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
+
+    **Sua Tarefa:**
+    1.  **Análise Profunda:** Releia o texto-fonte original.
+    2.  **Geração de Conteúdo Inédito:** Gere APENAS conteúdo NOVO E ÚNICO que NÃO ESTÁ PRESENTE no JSON de "Conteúdo Existente".
+    3.  **Expansão com Pesquisa (Opcional):** Se o texto-fonte for limitado, você PODE usar seu conhecimento e ferramentas de pesquisa para encontrar informações relacionadas e criar material de estudo adicional, sempre mantendo o foco no tópico da fonte original e no prompt do usuário, se houver.
+    4.  **Rigor Anti-Duplicatas:** Seja extremamente rigoroso para não repetir informações já existentes. Se nenhum conteúdo novo e relevante for encontrado, retorne arrays vazios.
 
     **Conteúdo Existente:**
     \`\`\`json
