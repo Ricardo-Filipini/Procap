@@ -1,0 +1,512 @@
+import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
+import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer } from '../types';
+
+const API_KEY = process.env.API_KEY;
+
+if (!API_KEY) {
+  console.warn("API_KEY not found. Gemini API features will be disabled.");
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY! });
+
+const getModel = () => {
+    if (!API_KEY) {
+        throw new Error("API_KEY not set.");
+    }
+    return ai.models;
+}
+
+export const getSimpleChatResponse = async (history: { role: string, parts: Part[] }[], newMessage: string): Promise<string> => {
+  if (!API_KEY) {
+    return "A funcionalidade da IA está desabilitada. Configure a API Key.";
+  }
+  try {
+    const model = 'gemini-2.5-flash';
+    const chat = ai.chats.create({
+        model: model,
+        history: history
+    });
+
+    const response: GenerateContentResponse = await chat.sendMessage({ message: newMessage });
+    return response.text;
+  } catch (error) {
+    console.error("Error calling Gemini API:", error);
+    return "Desculpe, ocorreu um erro ao me comunicar com a IA.";
+  }
+};
+
+
+export const generateQuestionsFromTopic = async (topic: string): Promise<any> => {
+    if (!API_KEY) {
+        return { error: "A funcionalidade da IA está desabilitada. Configure a API Key." };
+    }
+    try {
+        const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 4 opções, uma resposta correta, uma breve explicação e duas dicas úteis. Siga estritamente o schema JSON fornecido.`;
+
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        questions: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    questionText: { type: Type.STRING },
+                                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                    correctAnswer: { type: Type.STRING },
+                                    explanation: { type: Type.STRING },
+                                    hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                                },
+                                required: ['questionText', 'options', 'correctAnswer', 'explanation', 'hints']
+                            },
+                        },
+                    },
+                    required: ['questions']
+                },
+            },
+        });
+
+        return JSON.parse(response.text);
+
+    } catch (error) {
+        console.error("Error generating questions with Gemini API:", error);
+        return { error: "Não foi possível gerar as questões." };
+    }
+};
+
+export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[]): Promise<any> => {
+    if (!API_KEY) return { error: "A funcionalidade da IA está desabilitada." };
+
+    const prompt = `
+    A partir do texto-fonte fornecido, atue como um especialista em material de estudo para concursos.
+    1. Analise o conteúdo e gere um título conciso e um resumo curto (2-3 frases) para o material.
+    2. Categorize o conteúdo. Identifique a matéria principal e o tópico específico. Se possível, use uma das matérias/tópicos existentes: ${JSON.stringify(existingTopics)}. Se não corresponder, crie uma nova categoria apropriada.
+    3. Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
+        - Resumos detalhados (summaries): Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um, que será usada em tooltips.
+        - Flashcards: SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível. Extraia todos os conceitos, termos, datas e fatos importantes. Não hesite em criar muitos flashcards se o conteúdo for denso.
+        - Questões (questions): CRIE O MÁXIMO DE QUESTÕES DE MÚLTIPLA ESCOLHA POSSÍVEL (mínimo de 3, idealmente mais de 10 se o texto for longo). Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis para ajudar a resolver a questão.
+    4. Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça uma frase curta e descritiva que servirá de prompt para gerar a imagem do mapa mental.
+    5. Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
+
+    Texto-fonte para análise:
+    ---
+    ${text}
+    ---
+    `;
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING, description: "Um título curto e descritivo para o texto-fonte." },
+            summary: { type: Type.STRING, description: "Um resumo de 2-3 frases sobre o conteúdo principal." },
+            materia: { type: Type.STRING, description: "A matéria principal identificada no texto (ex: Economia)." },
+            topic: { type: Type.STRING, description: "O tópico específico do texto (ex: Política Monetária)." },
+            summaries: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING },
+                        content: { type: Type.STRING },
+                        keyPoints: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    term: { type: Type.STRING },
+                                    description: { type: Type.STRING }
+                                },
+                                required: ['term', 'description']
+                            }
+                        },
+                    },
+                    required: ['title', 'content', 'keyPoints']
+                }
+            },
+            flashcards: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        front: { type: Type.STRING },
+                        back: { type: Type.STRING },
+                    },
+                    required: ['front', 'back']
+                }
+            },
+            questions: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil']},
+                        questionText: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        correctAnswer: { type: Type.STRING },
+                        explanation: { type: Type.STRING },
+                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                    },
+                    required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
+                }
+            },
+            mindMapTopics: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.STRING,
+                    description: "Uma frase-prompt curta para gerar um mapa mental sobre um sub-tópico."
+                },
+                description: "Uma lista de prompts para gerar mapas mentais para os sub-tópicos chave."
+            }
+        },
+        required: ['title', 'summary', 'materia', 'topic', 'summaries', 'flashcards', 'questions', 'mindMapTopics']
+    };
+
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema },
+        });
+        return JSON.parse(response.text);
+    } catch (error) {
+        console.error(`Error processing source content with Gemini API:`, error);
+        return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
+    }
+};
+
+export const generateImageForMindMap = async (prompt: string): Promise<{ base64Image?: string; error?: string }> => {
+    if (!API_KEY) {
+        return { error: "A funcionalidade da IA está desabilitada." };
+    }
+    const reinforcedPrompt = `
+    Gere uma imagem para um mapa mental claro, bem estruturado e visualmente agradável sobre o conceito central: "${prompt}".
+
+    **REQUISITOS OBRIGATÓRIOS E CRÍTICOS:**
+    1.  **IDIOMA:** Todo e qualquer texto na imagem DEVE estar em **Português do Brasil (pt-BR)**.
+    2.  **ORTOGRAFIA E GRAMÁTICA:** A correção é absoluta. Verifique cuidadosamente a **acentuação** (crases, acentos agudos, circunflexos), pontuação e grafia de todas as palavras.
+    3.  **SIGLAS:** Todas as siglas devem ser escritas corretamente (ex: BCB, COPOM, SFN).
+    4.  **CLAREZA:** A estrutura deve ser lógica e fácil de ler. Use fontes legíveis e um layout limpo.
+
+    Sua prioridade máxima é a **precisão linguística** e a clareza visual. A imagem será rejeitada se contiver erros de português.
+    `;
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [{ text: reinforcedPrompt }],
+            },
+            config: {
+                responseModalities: [Modality.IMAGE],
+            },
+        });
+        
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+                return { base64Image: part.inlineData.data };
+            }
+        }
+        return { error: "Nenhuma imagem foi gerada pela IA." };
+    } catch (error) {
+        console.error("Error generating mind map image:", error);
+        return { error: "Não foi possível gerar a imagem do mapa mental." };
+    }
+};
+
+export const getPersonalizedStudyPlan = async (
+    userStats: any, 
+    interactions: UserContentInteraction[],
+    content: {summaries: any[], flashcards: any[], notebooks: any[]}
+    ): Promise<string> => {
+    if (!API_KEY) {
+        return "A funcionalidade da IA está desabilitada. Configure a API Key.";
+    }
+    
+    const favorites = interactions.filter(i => i.is_favorite).map(i => ({ type: i.content_type, id: i.content_id }));
+    const read = interactions.filter(i => i.is_read).map(i => ({ type: i.content_type, id: i.content_id }));
+    
+    const prompt = `
+        Você é um tutor especialista para concursos do Banco Central. Baseado nas seguintes informações sobre um estudante, crie um plano de estudos personalizado, conciso e acionável.
+
+        **Dados do Estudante:**
+        - **Estatísticas de Desempenho (Questões):** ${JSON.stringify(userStats)}
+        - **Itens Favoritados:** ${JSON.stringify(favorites)}
+        - **Itens Lidos:** ${JSON.stringify(read)}
+        - **Conteúdo Disponível:** 
+          - Resumos: ${JSON.stringify(content.summaries.map(s => ({id: s.id, title: s.title, topic: s.source?.topic})))}
+          - Flashcards: ${JSON.stringify(content.flashcards.map(f => ({id: f.id, front: f.front, topic: f.source?.topic})))}
+          - Cadernos: ${JSON.stringify(content.notebooks.map(n => ({id: n.id, name: n.name})))}
+
+        **Instruções para o Plano:**
+        1.  **Foco Principal:** Identifique os tópicos com o menor percentual de acerto e priorize-os.
+        2.  **Sugestões de Revisão:** Sugira a revisão de resumos e flashcards, especialmente os que foram favoritados ou que pertencem a tópicos de baixo desempenho.
+        3.  **Sugestões de Prática:** Recomende a prática com cadernos de questões, dando preferência aos que cobrem as áreas de maior dificuldade.
+        4.  **Formato OBRIGATÓRIO:** Formate a resposta em markdown. Use a seguinte sintaxe para criar links DIRETAMENTE para o conteúdo na plataforma:
+            - Para Resumos: \`#[nome do resumo]\`
+            - Para Flashcards: \`![frente do flashcard]\`
+            - Para Cadernos de Questões: \`?[nome do caderno]\`
+        5.  **Tom:** Seja encorajador, direto e prático. O objetivo é fornecer um guia claro para os próximos passos do estudante.
+
+        Crie o plano de estudos agora.
+    `;
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-pro', // Using a more powerful model for better analysis
+            contents: prompt,
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Error generating study plan:", error);
+        return "Desculpe, não consegui gerar seu plano de estudos.";
+    }
+}
+
+export const filterItemsByPrompt = async (prompt: string, items: {id: string, text: string}[]): Promise<string[]> => {
+    if (!API_KEY) {
+        console.error("API Key not configured for AI filtering.");
+        return items.map(i => i.id);
+    }
+    try {
+        const filteringPrompt = `
+        Dado o prompt do usuário "${prompt}", analise a seguinte lista de itens de estudo.
+        Retorne um array JSON contendo apenas os IDs dos itens que são mais relevantes para o prompt.
+        Se nenhum for relevante, retorne um array vazio.
+        
+        Itens:
+        ${JSON.stringify(items)}
+        `;
+
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: filteringPrompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        relevantIds: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING }
+                        }
+                    },
+                    required: ['relevantIds']
+                }
+            }
+        });
+        const result = JSON.parse(response.text);
+        return result.relevantIds || [];
+    } catch(error) {
+        console.error("Error filtering with AI:", error);
+        return []; // Return empty on error to signify failure
+    }
+}
+
+export const generateSpecificContent = async (
+    type: 'summaries' | 'flashcards' | 'questions',
+    contextText: string,
+    prompt: string
+): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+    
+    const contentGenerationMap = {
+        summaries: {
+            instruction: `Gere um ou mais resumos detalhados sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Para cada resumo, identifique termos-chave e suas descrições.`,
+            schema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING },
+                        content: { type: Type.STRING },
+                        keyPoints: {
+                           type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    term: { type: Type.STRING },
+                                    description: { type: Type.STRING }
+                                },
+                                required: ['term', 'description']
+                            }
+                        },
+                    },
+                    required: ['title', 'content', 'keyPoints']
+                }
+            }
+        },
+        flashcards: {
+            instruction: `Gere um conjunto exaustivo de flashcards sobre o tópico "${prompt}" a partir do texto-fonte fornecido.`,
+            schema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        front: { type: Type.STRING },
+                        back: { type: Type.STRING },
+                    },
+                    required: ['front', 'back']
+                }
+            }
+        },
+        questions: {
+            instruction: `Gere o máximo de questões de múltipla escolha possível sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Cada questão deve ter 4 opções, resposta correta, explicação e duas dicas.`,
+            schema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil']},
+                        questionText: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        correctAnswer: { type: Type.STRING },
+                        explanation: { type: Type.STRING },
+                        hints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Duas dicas úteis sobre a questão." },
+                    },
+                    required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
+                }
+            }
+        }
+    }
+
+    const generationDetails = contentGenerationMap[type];
+    const fullPrompt = `${generationDetails.instruction}\n\nTexto-fonte:\n---\n${contextText}\n---`;
+
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: fullPrompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        generatedContent: generationDetails.schema
+                    },
+                    required: ['generatedContent']
+                },
+            },
+        });
+        const result = JSON.parse(response.text);
+        return result.generatedContent;
+
+    } catch (error) {
+        console.error(`Error generating ${type}:`, error);
+        return { error: `Falha ao gerar ${type}.` };
+    }
+};
+
+export const generateNotebookName = async (questions: Question[]): Promise<string> => {
+    if (!API_KEY) return "Caderno de Estudos";
+    
+    const questionTexts = questions.slice(0, 5).map(q => q.questionText).join("\n - ");
+    const prompt = `Baseado nas seguintes questões, gere um nome curto, conciso e descritivo (máximo de 5 palavras) para um "Caderno de Questões". Responda apenas com o nome.
+    
+    Questões:
+    - ${questionTexts}
+    `;
+
+    try {
+        const response = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        return response.text.trim();
+    } catch(error) {
+        console.error("Error generating notebook name:", error);
+        return `Caderno de ${new Date().toLocaleDateString()}`;
+    }
+}
+
+export const generateMoreContentFromSource = async (
+    sourceText: string,
+    existingContent: { summaries: any[], flashcards: any[], questions: any[] },
+    userPrompt?: string
+): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+
+    const prompt = `
+    Você é um especialista em material de estudo. Analise o texto-fonte fornecido.
+    Abaixo está um JSON do conteúdo que JÁ FOI EXTRAÍDO deste texto.
+    Sua tarefa é reler o texto-fonte e gerar APENAS conteúdo NOVO E ÚNICO que NÃO ESTÁ PRESENTE no JSON existente.
+    Seja rigoroso para evitar duplicatas. Se nenhum conteúdo novo e relevante for encontrado, retorne arrays vazios.
+    ${userPrompt ? `Além disso, foque em gerar conteúdo relacionado ao seguinte tópico/pergunta do usuário: "${userPrompt}"` : ''}
+
+    **Conteúdo Existente:**
+    \`\`\`json
+    ${JSON.stringify(existingContent, null, 2)}
+    \`\`\`
+
+    **Texto-Fonte para Análise:**
+    ---
+    ${sourceText}
+    ---
+
+    Retorne o conteúdo NOVO E INÉDITO no formato JSON, seguindo o schema.
+    `;
+    
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            summaries: {
+                type: Type.ARRAY, items: {
+                    type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, keyPoints: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { term: { type: Type.STRING }, description: { type: Type.STRING } }, required: ['term', 'description'] } } }, required: ['title', 'content', 'keyPoints']
+                }
+            },
+            flashcards: {
+                type: Type.ARRAY, items: {
+                    type: Type.OBJECT, properties: { front: { type: Type.STRING }, back: { type: Type.STRING } }, required: ['front', 'back']
+                }
+            },
+            questions: {
+                type: Type.ARRAY, items: {
+                    type: Type.OBJECT, properties: { difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil'] }, questionText: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctAnswer: { type: Type.STRING }, explanation: { type: Type.STRING }, hints: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
+                }
+            }
+        },
+        required: ['summaries', 'flashcards', 'questions']
+    };
+
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema },
+        });
+        return JSON.parse(response.text);
+    } catch (error) {
+        console.error("Error generating more content:", error);
+        return { error: "Falha ao explorar a fonte para mais conteúdo." };
+    }
+};
+
+export const generateContentFromPromptAndSources = async (
+    prompt: string,
+    contextSources: { title: string, summary: string }[]
+): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+
+    const contextText = contextSources.map(s => `Fonte de Contexto: ${s.title}\nResumo: ${s.summary}`).join('\n\n---\n\n');
+
+    const fullPrompt = `
+    Você é um especialista em criar material de estudo para concursos.
+    O usuário deseja criar um novo conjunto de materiais de estudo sobre o tópico: "${prompt}".
+    Use os textos das fontes de contexto fornecidas como sua principal base de conhecimento para gerar este novo material.
+    
+    **Tarefa:**
+    1. Gere um título e um resumo curtos para este novo conjunto de materiais, baseados no prompt do usuário.
+    2. Determine a "matéria" e o "tópico" apropriados para o prompt do usuário.
+    3. Crie um conjunto completo de materiais de estudo (resumos, flashcards, questões e ideias para mapas mentais) sobre "${prompt}", extraindo informações relevantes das fontes de contexto.
+    4. Retorne TUDO em um único objeto JSON, seguindo o schema fornecido.
+
+    **Fontes de Contexto:**
+    ---
+    ${contextText}
+    ---
+    `;
+    
+    return processAndGenerateAllContentFromSource(fullPrompt, []); // Re-use the robust generation logic and schema
+};
