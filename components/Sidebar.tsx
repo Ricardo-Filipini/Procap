@@ -46,7 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeView, setAc
           ))}
         </ul>
       </nav>
-      <div className="border-t border-border-light dark:border-border-dark p-4">
+      <div className={`border-t border-border-light dark:border-border-dark transition-all duration-300 ${isCollapsed ? 'px-1 py-4' : 'p-4'}`}>
           <button 
             onClick={onLogout}
             className={`w-full flex items-center p-2 rounded-md transition-colors duration-200 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 ${isCollapsed ? 'justify-center' : ''}`}>

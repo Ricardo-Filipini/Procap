@@ -825,7 +825,7 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
             }, {} as Record<string, any[]>);
             // Sort items within each group by temperature
             // Fix: Add type annotation for groupItems to avoid type inference issues.
-            Object.values(grouped).forEach((groupItems: any[]) => {
+            Object.values(grouped).forEach((groupItems: { hot_votes: number; cold_votes: number }[]) => {
                 groupItems.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
             });
             return grouped;
@@ -2818,7 +2818,8 @@ const SourcesView: React.FC<{
         const files = event.target.files;
         if (files) {
             const allowedTypes = ["application/pdf", "text/plain", "image/jpeg", "image/png", "audio/mpeg", "audio/wav", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
-            const newFiles = Array.from(files).filter(file => {
+// Fix: Explicitly type `file` and `f` as File to resolve property access errors.
+            const newFiles = Array.from(files).filter((file: File) => {
                 if (allowedTypes.includes(file.type)) {
                     return true;
                 } else {
@@ -2827,8 +2828,8 @@ const SourcesView: React.FC<{
                 }
             });
              setAttachedFiles(prev => {
-                const existingNames = new Set(prev.map(f => f.name));
-                const uniqueNewFiles = newFiles.filter(f => !existingNames.has(f.name));
+                const existingNames = new Set(prev.map((f: File) => f.name));
+                const uniqueNewFiles = newFiles.filter((f: File) => !existingNames.has(f.name));
                 return [...prev, ...uniqueNewFiles];
             });
         }
@@ -3244,209 +3245,4 @@ const SourcesView: React.FC<{
                                             <TrashIcon className="w-4 h-4" />
                                         </button>
                                         <button disabled={!!exploringSource} onClick={(e) => { e.stopPropagation(); setExploringSource(source); }} className="text-gray-400 hover:text-secondary-light dark:hover:text-secondary-dark transition-colors p-1 disabled:opacity-50 disabled:cursor-wait" title="Explorar mais conteúdo com IA">
-                                            {processingTasks.some(t => t.id.startsWith(`explore_${source.id}`)) ? <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-4 h-4" />}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                        <p className="text-sm text-gray-500">{source.materia} &gt; {source.topic}</p>
-                        <p className="text-xs text-gray-400 mt-1">Adicionado por {appData.users.find(u => u.id === source.user_id)?.pseudonym || 'Desconhecido'} em {new Date(source.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <div className="flex items-center gap-4 relative ml-4 flex-shrink-0">
-                        <button onClick={(e) => { e.stopPropagation(); setActiveVote({ sourceId: source.id, type: 'hot' })}} className="flex items-center gap-1 text-base">
-                            <span className="text-lg">🔥</span><span>{source.hot_votes || 0}</span>
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); setActiveVote({ sourceId: source.id, type: 'cold' })}} className="flex items-center gap-1 text-base">
-                            <span className="text-lg">❄️</span><span>{source.cold_votes || 0}</span>
-                        </button>
-                        {activeVote?.sourceId === source.id && (
-                             <div ref={votePopupRef} className="absolute top-full mt-1 z-10 bg-black/70 backdrop-blur-sm text-white rounded-full flex items-center p-1 gap-1 shadow-lg" onClick={e => e.stopPropagation()}>
-                                <button onClick={() => handleSourceVote(source.id, activeVote.type, 1)} className="p-1 hover:bg-white/20 rounded-full"><PlusIcon className="w-4 h-4" /></button>
-                                <span className="text-sm font-bold w-4 text-center">
-                                    {activeVote.type === 'hot' ? (userVote?.hot_votes || 0) : (userVote?.cold_votes || 0)}
-                                </span>
-                                <button onClick={() => handleSourceVote(source.id, activeVote.type, -1)} className="p-1 hover:bg-white/20 rounded-full"><MinusIcon className="w-4 h-4" /></button>
-                            </div>
-                        )}
-                    </div>
-                </summary>
-                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                    <p className="italic">{source.summary}</p>
-                    <div className="flex items-center gap-4 my-3 text-sm">
-                        {contentCounts.map((item, index) => item.count > 0 && (
-                            <div key={index} className="flex items-center gap-1.5" title={item.label}>
-                                <item.icon className="w-4 h-4 text-gray-500" />
-                                <span className="font-semibold">{item.count}</span>
-                            </div>
-                        ))}
-                    </div>
-                     {source.original_filename && source.original_filename.length > 0 && (
-                        <div className="mt-4">
-                            <h4 className="font-semibold text-sm">Arquivos:</h4>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {source.original_filename.map((filename, index) => {
-                                    if(!source.storage_path || !source.storage_path[index]) return null;
-                                    const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(source.storage_path[index]);
-                                    return (
-                                        <a
-                                            key={`${source.id}-${index}`}
-                                            href={publicUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="flex items-center gap-1.5 bg-background-light dark:bg-background-dark hover:bg-gray-200 dark:hover:bg-gray-700 px-2 py-1 rounded-md border border-border-light dark:border-border-dark text-sm transition-colors"
-                                        >
-                                            <DocumentTextIcon className="w-4 h-4 flex-shrink-0" />
-                                            <span className="truncate" title={filename}>{filename}</span>
-                                        </a>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); setCommentingOn(source); }} 
-                        className="text-sm text-primary-light dark:text-primary-dark mt-4 hover:underline"
-                    >
-                        Comentários ({(source.comments || []).length})
-                    </button>
-                </div>
-            </details>
-        );
-    };
-
-    return (
-        <div className="space-y-8">
-            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <h2 className="text-2xl font-bold mb-4">Adicionar Nova Fonte</h2>
-                <p className="text-sm text-gray-500 mb-4">Anexe arquivos (PDF, DOCX, TXT) ou descreva um tópico para que a IA gere um conjunto completo de materiais de estudo. O processamento é feito em segundo plano.</p>
-                <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Título (opcional)</label>
-                    <input 
-                        type="text" 
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        placeholder="A IA gera um se deixado em branco"
-                        className="w-full px-3 py-2 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md"
-                    />
-                </div>
-                <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="Ou simplesmente digite um prompt/pergunta. A IA pedirá para selecionar fontes existentes como contexto..."
-                    className="w-full h-24 p-3 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark focus:ring-2 focus:ring-primary-light"
-                />
-                <div className="mt-2 space-y-2">
-                    {attachedFiles.map(file => (
-                        <div key={file.name} className="flex items-center justify-between bg-background-light dark:bg-background-dark p-2 rounded-md border border-border-light dark:border-border-dark">
-                            <span className="text-sm truncate">{file.name}</span>
-                            <button onClick={() => handleRemoveFile(file.name)} className="text-red-500 hover:text-red-700">
-                                <XMarkIcon className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ))}
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-md border border-border-light dark:border-border-dark hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <PaperClipIcon className="w-5 h-5"/> Anexar Arquivos
-                    </button>
-                    <input type="file" ref={fileInputRef} onChange={handleFileChange} multiple className="hidden" accept=".pdf,.txt,.docx" />
-                    <button onClick={() => handleProcessSource()} className="px-6 py-2 bg-primary-light text-white font-bold rounded-md hover:bg-indigo-600 disabled:opacity-50">
-                        Processar
-                    </button>
-                </div>
-            </div>
-            {exploringSource && (
-                <ExploreSourceModal
-                    isOpen={!!exploringSource}
-                    onClose={() => setExploringSource(null)}
-                    sourceTitle={exploringSource.title}
-                    isLoading={processingTasks.some(t => t.id.startsWith(`explore_${exploringSource.id}`))}
-                    onConfirm={handleExploreSource}
-                />
-            )}
-            <CommentsModal 
-                isOpen={!!commentingOn}
-                onClose={() => setCommentingOn(null)}
-                comments={commentingOn?.comments || []}
-                onAddComment={(text) => handleCommentAction('add', {text})}
-                onVoteComment={(commentId, voteType) => handleCommentAction('vote', {commentId, voteType})}
-                contentTitle={commentingOn?.title || ''}
-            />
-            {sourceToDelete && (
-                <Modal
-                    isOpen={!!sourceToDelete}
-                    onClose={() => setSourceToDelete(null)}
-                    title="Confirmar Exclusão"
-                >
-                    <div className="p-4">
-                        <p className="text-foreground-light dark:text-foreground-dark">
-                            Tem certeza que deseja excluir a fonte "<strong>{sourceToDelete.title}</strong>"?
-                        </p>
-                        <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-                            Todos os resumos, flashcards e questões associados serão permanentemente removidos. Esta ação não pode ser desfeita.
-                        </p>
-                        <div className="mt-6 flex justify-end gap-4">
-                            <button
-                                onClick={() => setSourceToDelete(null)}
-                                className="px-4 py-2 rounded-md border border-border-light dark:border-border-dark hover:bg-gray-100 dark:hover:bg-gray-700"
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleConfirmDelete}
-                                className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white font-semibold"
-                            >
-                                Excluir
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            )}
-
-             {processingTasks.length > 0 && (
-                <div>
-                    <h3 className="text-xl font-bold mb-4">Processamento em Andamento</h3>
-                    <div className="space-y-3">
-                        {processingTasks.map(task => (
-                            <div key={task.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
-                                <div className="flex justify-between items-center">
-                                    <p className="font-semibold truncate">{task.name}</p>
-                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${task.status === 'processing' ? 'bg-blue-200 text-blue-800 animate-pulse' : task.status === 'success' ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                                        {task.status}
-                                    </span>
-                                </div>
-                                <p className="text-sm text-gray-500 mt-1">{task.message}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-             <div>
-                <h3 className="text-xl font-bold mb-4">Fontes Adicionadas</h3>
-                <div className="flex items-center justify-between gap-4 text-sm bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark mb-6">
-                    <span className="font-semibold">Agrupar por:</span>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => setDisplayMode('time')} title="Data" className={`p-2 rounded-full ${displayMode === 'time' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
-                        <button onClick={() => setDisplayMode('temp')} title="Temperatura" className={`p-2 rounded-full ${displayMode === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
-                        <button onClick={() => setDisplayMode('user')} title="Usuário" className={`p-2 rounded-full ${displayMode === 'user' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>👤</button>
-                        <button onClick={() => setDisplayMode('subject')} title="Matéria" className={`p-2 rounded-full ${displayMode === 'subject' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>📚</button>
-                    </div>
-                </div>
-                 <div className="space-y-4">
-                    {Array.isArray(processedSources) 
-                        ? processedSources.map(source => <SourceItemContent key={source.id} source={source} />)
-                        : Object.entries(processedSources as Record<string, Source[]>).map(([groupKey, sources]) => (
-                            <details key={groupKey} open className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                                <summary className="text-xl font-bold cursor-pointer">{displayMode === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                    {sources.sort((a,b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes)).map(source => <SourceItemContent key={source.id} source={source} />)}
-                                </div>
-                            </details>
-                        ))
-                    }
-                </div>
-             </div>
-        </div>
-    );
-};
+                                            {processingTasks.some(t => t.id.startsWith(`explore_${source.id}`)) ? <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-4 h-

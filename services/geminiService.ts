@@ -302,7 +302,8 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
                 }
             }
         });
-        const result = JSON.parse(response.text);
+        // Fix: Explicitly type the parsed JSON to ensure `relevantIds` is a string array.
+        const result: { relevantIds?: string[] } = JSON.parse(response.text);
         return result.relevantIds || [];
     } catch(error) {
         console.error("Error filtering with AI:", error);
