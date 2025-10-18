@@ -64,6 +64,467 @@ const checkAndAwardAchievements = (user: User, appData: AppData): User => {
     return user;
 };
 
+// Fix: Define AdminView to resolve 'Cannot find name' error.
+const AdminView: React.FC<{ appData: AppData; setAppData: React.Dispatch<React.SetStateAction<AppData>>; }> = ({ appData }) => (
+    <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+      <h2 className="text-2xl font-bold mb-4">Painel Administrativo</h2>
+      <p>Esta área é para gerenciamento do sistema.</p>
+      <div className="mt-4">
+        <h3 className="text-lg font-semibold">Estatísticas Gerais</h3>
+        <ul>
+          <li>Total de Usuários: {appData.users.length}</li>
+          <li>Total de Fontes: {appData.sources.length}</li>
+          <li>Total de Mensagens no Chat: {appData.chatMessages.length}</li>
+        </ul>
+      </div>
+    </div>
+);
+
+// Fix: Define SourcesView to resolve 'Cannot find name' error.
+const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'currentUser' | 'updateUser' | 'processingTasks' | 'setProcessingTasks'>> = ({ appData, setAppData, currentUser, updateUser, processingTasks, setProcessingTasks }) => {
+    const [isAddSourceModalOpen, setIsAddSourceModalOpen] = useState(false);
+    const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
+    const [sourceToRename, setSourceToRename] = useState<Source | null>(null);
+    const [newSourceName, setNewSourceName] = useState("");
+    const [sort, setSort] = useState<SortOption>('time');
+    const [commentingOn, setCommentingOn] = useState<Source | null>(null);
+    const [activeVote, setActiveVote] = useState<{ sourceId: string; type: 'hot' | 'cold' } | null>(null);
+    const votePopupRef = useRef<HTMLDivElement>(null);
+    
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (votePopupRef.current && !votePopupRef.current.contains(event.target as Node)) {
+                setActiveVote(null);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const extractTextFromFile = async (file: File): Promise<string> => {
+        if (file.type === 'application/pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            let text = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                text += (content.items as any[]).map(item => item.str).join(' ');
+            }
+            return text;
+        } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            return result.value;
+        } else if (file.type === 'text/plain' || file.type === 'text/markdown') {
+            return file.text();
+        }
+        throw new Error(`Unsupported file type: ${file.type}`);
+    };
+
+    const handleProcessFiles = async (files: FileList, title: string) => {
+        for (const file of Array.from(files)) {
+            const taskId = `task_${file.name}_${Date.now()}`;
+            setProcessingTasks(prev => [...prev, { id: taskId, name: file.name, message: 'Iniciando processamento...', status: 'processing' }]);
+
+            try {
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Extraindo texto do arquivo...' } : t));
+                const text = await extractTextFromFile(file);
+
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Analisando e gerando conteúdo com IA...' } : t));
+                const existingTopics = appData.sources.map(s => ({ materia: s.materia, topic: s.topic }));
+                const generated = await processAndGenerateAllContentFromSource(text, existingTopics);
+                if (generated.error) throw new Error(generated.error);
+
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando nova fonte...' } : t));
+                const sourcePayload: Partial<Source> = {
+                    user_id: currentUser.id,
+                    title: title,
+                    summary: generated.summary,
+                    original_filename: [file.name],
+                    storage_path: [],
+                    materia: generated.materia,
+                    topic: generated.topic,
+                    hot_votes: 0,
+                    cold_votes: 0,
+                    comments: []
+                };
+                const newSource = await addSource(sourcePayload);
+                if (!newSource) throw new Error("Falha ao criar a fonte no banco de dados.");
+
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando conteúdo gerado...' } : t));
+                const mindMapPrompts = generated.mindMapTopics || [];
+                const mindMapPromises = mindMapPrompts.map(async (topic: {title: string, prompt: string}) => {
+                    const { base64Image } = await generateImageForMindMap(topic.prompt);
+                    if (base64Image) {
+                        const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
+                        const imagePath = `${currentUser.id}/mindmaps/${newSource.id}_${topic.title.replace(/\s/g, '_')}.png`;
+                        const { error } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
+                        if (error) {
+                            console.error("Failed to upload mind map image:", error);
+                            return null;
+                        }
+                        const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(imagePath);
+                        return { title: topic.title, imageUrl: publicUrl };
+                    }
+                    return null;
+                });
+                
+                const resolvedMindMaps = (await Promise.all(mindMapPromises)).filter((m): m is { title: string, imageUrl: string } => m !== null);
+                
+                const contentToSave = {
+                    summaries: generated.summaries,
+                    flashcards: generated.flashcards,
+                    questions: generated.questions,
+                    mind_maps: resolvedMindMaps
+                };
+
+                const createdContent = await addGeneratedContent(newSource.id, contentToSave);
+                if (!createdContent) throw new Error("Falha ao salvar o conteúdo gerado.");
+
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Enviando arquivo original...' } : t));
+                const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const filePath = `${currentUser.id}/${newSource.id}_${sanitizeFileName(file.name)}`;
+                const { error: uploadError } = await supabase!.storage.from('sources').upload(filePath, file);
+                if (uploadError) throw uploadError;
+
+                await updateSource(newSource.id, { storage_path: [filePath] });
+
+                const finalSource: Source = {
+                    ...newSource,
+                    title: title,
+                    summary: generated.summary,
+                    original_filename: [file.name],
+                    storage_path: [filePath],
+                    materia: generated.materia,
+                    topic: generated.topic,
+                    summaries: createdContent.summaries,
+                    flashcards: createdContent.flashcards,
+                    questions: createdContent.questions,
+                    mind_maps: createdContent.mind_maps,
+                    audio_summaries: []
+                };
+                
+                setAppData(prev => ({ ...prev, sources: [finalSource, ...prev.sources] }));
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Processamento concluído com sucesso!', status: 'success' } : t));
+            
+            } catch (error: any) {
+                console.error(`Failed to process ${file.name}:`, error);
+                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: `Erro: ${error.message}`, status: 'error' } : t));
+            }
+        }
+    };
+
+    const handleDeleteSource = async () => {
+        if (!sourceToDelete) return;
+        const success = await deleteSource(sourceToDelete.id, sourceToDelete.storage_path);
+        if (success) {
+            setAppData(prev => ({
+                ...prev,
+                sources: prev.sources.filter(s => s.id !== sourceToDelete.id)
+            }));
+        } else {
+            alert("Falha ao deletar a fonte.");
+        }
+        setSourceToDelete(null);
+    };
+
+    const handleRenameSource = async () => {
+        if (!sourceToRename || !newSourceName.trim()) return;
+        const result = await updateSource(sourceToRename.id, { title: newSourceName.trim() });
+        if (result) {
+            setAppData(prev => ({
+                ...prev,
+                sources: prev.sources.map(s => s.id === sourceToRename.id ? { ...s, title: newSourceName.trim() } : s)
+            }));
+        }
+        setSourceToRename(null);
+    };
+
+    const handleSourceVote = async (sourceId: string, type: 'hot' | 'cold', increment: 1 | -1) => {
+        const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === sourceId);
+        const currentVoteCount = (type === 'hot' ? userVote?.hot_votes : userVote?.cold_votes) || 0;
+        if (increment === -1 && currentVoteCount <= 0) return;
+
+        setAppData(prev => {
+            const newVotes = prev.userSourceVotes.map(v => (v.user_id === currentUser.id && v.source_id === sourceId) ? { ...v, [`${type}_votes`]: (v[`${type}_votes`] || 0) + increment } : v);
+            if (!newVotes.some(v => v.user_id === currentUser.id && v.source_id === sourceId)) {
+                 newVotes.push({ id: `temp_src_vote_${Date.now()}`, user_id: currentUser.id, source_id: sourceId, hot_votes: type === 'hot' ? increment : 0, cold_votes: type === 'cold' ? increment : 0 });
+            }
+            const newSources = prev.sources.map(s => s.id === sourceId ? { ...s, [`${type}_votes`]: s[`${type}_votes`] + increment } : s);
+            return { ...prev, userSourceVotes: newVotes, sources: newSources };
+        });
+
+        await upsertUserVote('user_source_votes', { user_id: currentUser.id, source_id: sourceId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'source_id']);
+        await incrementVoteCount('increment_source_vote', sourceId, `${type}_votes`, increment);
+        
+        const source = appData.sources.find(s => s.id === sourceId);
+        if (source && source.user_id !== currentUser.id) {
+            const author = appData.users.find(u => u.id === source.user_id);
+            if (author) {
+                const xpChange = (type === 'hot' ? 1 : -1) * increment;
+                const updatedAuthor = { ...author, xp: Math.max(0, author.xp + xpChange) };
+                const result = await supabaseUpdateUser(updatedAuthor);
+                if (result) {
+                    setAppData(prev => ({ ...prev, users: prev.users.map(u => u.id === result.id ? result : u) }));
+                }
+            }
+        }
+    };
+    
+    const handleSourceCommentAction = async (action: 'add' | 'vote', payload: any) => {
+        if (!commentingOn) return;
+        let updatedComments = [...(commentingOn.comments || [])];
+        if (action === 'add') {
+            updatedComments.push({ id: `c_src_${Date.now()}`, authorId: currentUser.id, authorPseudonym: currentUser.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 });
+        } else if (action === 'vote') {
+             const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
+            if (commentIndex > -1) {
+                updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+            }
+        }
+        
+        const success = await updateContentComments('sources', commentingOn.id, updatedComments);
+        if (success) {
+            const updatedSource = { ...commentingOn, comments: updatedComments };
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedSource.id ? updatedSource : s) }));
+            setCommentingOn(updatedSource);
+        }
+    };
+
+
+    const sortedSources = useMemo(() => {
+        let items = [...appData.sources];
+        switch (sort) {
+            case 'time':
+                items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                break;
+            case 'temp':
+                items.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
+                break;
+            case 'subject':
+                items.sort((a, b) => a.materia.localeCompare(b.materia));
+                break;
+        }
+        return items;
+    }, [appData.sources, sort]);
+
+    return (
+        <div className="space-y-6">
+            <AddSourceModal isOpen={isAddSourceModalOpen} onClose={() => setIsAddSourceModalOpen(false)} onProcess={handleProcessFiles} />
+             {sourceToDelete && (
+                <Modal isOpen={!!sourceToDelete} onClose={() => setSourceToDelete(null)} title="Confirmar Exclusão">
+                    <p>Tem certeza de que deseja excluir a fonte "{sourceToDelete.title}" e todo o seu conteúdo associado? Esta ação não pode ser desfeita.</p>
+                    <div className="flex justify-end gap-4 mt-6">
+                        <button onClick={() => setSourceToDelete(null)} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                        <button onClick={handleDeleteSource} className="px-4 py-2 rounded-md bg-red-600 text-white">Excluir</button>
+                    </div>
+                </Modal>
+            )}
+             {sourceToRename && (
+                <Modal isOpen={!!sourceToRename} onClose={() => setSourceToRename(null)} title={`Renomear Fonte`}>
+                    <div className="space-y-4">
+                        <label htmlFor="sourceName" className="block text-sm font-medium">Novo nome para "{sourceToRename.title}"</label>
+                        <input id="sourceName" type="text" value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)}
+                           className="w-full px-3 py-2 bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark border border-border-light dark:border-border-dark rounded-md focus:outline-none focus:ring-2 focus:ring-primary-light" />
+                        <div className="flex justify-end gap-4 mt-2">
+                           <button onClick={() => setSourceToRename(null)} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                           <button onClick={handleRenameSource} className="px-4 py-2 rounded-md bg-primary-light text-white">Salvar</button>
+                       </div>
+                   </div>
+                </Modal>
+             )}
+            <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} onAddComment={(text) => handleSourceCommentAction('add', {text})} onVoteComment={(commentId, voteType) => handleSourceCommentAction('vote', {commentId, voteType})} contentTitle={commentingOn?.title || ''}/>
+
+            <div className="flex justify-between items-center">
+                <ContentToolbar sort={sort} setSort={setSort} supportedSorts={['time', 'temp', 'subject']} />
+                <button onClick={() => setIsAddSourceModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600 transition-colors">
+                    <CloudArrowUpIcon className="w-5 h-5" />
+                    Adicionar Nova Fonte
+                </button>
+            </div>
+
+             {processingTasks.length > 0 && (
+                <div className="p-4 bg-card-light dark:bg-card-dark rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                    <h3 className="font-bold mb-2">Tarefas em Andamento</h3>
+                    <div className="space-y-2">
+                        {processingTasks.map(task => (
+                            <div key={task.id} className={`p-2 rounded-md ${task.status === 'success' ? 'bg-green-100 dark:bg-green-900/50' : task.status === 'error' ? 'bg-red-100 dark:bg-red-900/50' : 'bg-background-light dark:bg-background-dark'}`}>
+                                <p className="font-semibold text-sm">{task.name}</p>
+                                <p className="text-xs">{task.message}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            
+            <div className="space-y-4">
+                {sortedSources.map(source => {
+                    const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === source.id);
+                    return (
+                     <div key={source.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                        <div className="flex justify-between items-start">
+                             <div>
+                                <h3 className="text-xl font-bold">{source.title}</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">{source.materia} &gt; {source.topic}</p>
+                                <p className="text-sm mt-2">{source.summary}</p>
+                            </div>
+                            {currentUser.id === source.user_id && (
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setSourceToRename(source); setNewSourceName(source.title); }} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700" title="Renomear Fonte">
+                                        <PencilIcon className="w-5 h-5"/>
+                                    </button>
+                                    <button onClick={() => setSourceToDelete(source)} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700" title="Deletar Fonte">
+                                        <TrashIcon className="w-5 h-5 text-red-500"/>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-center">
+                            <div className="bg-background-light dark:bg-background-dark p-2 rounded-md">
+                                <p className="font-semibold text-lg">{source.summaries.length}</p>
+                                <p className="text-xs">Resumos</p>
+                            </div>
+                            <div className="bg-background-light dark:bg-background-dark p-2 rounded-md">
+                                <p className="font-semibold text-lg">{source.flashcards.length}</p>
+                                <p className="text-xs">Flashcards</p>
+                            </div>
+                            <div className="bg-background-light dark:bg-background-dark p-2 rounded-md">
+                                <p className="font-semibold text-lg">{source.questions.length}</p>
+                                <p className="text-xs">Questões</p>
+                            </div>
+                            <div className="bg-background-light dark:bg-background-dark p-2 rounded-md">
+                                <p className="font-semibold text-lg">{source.mind_maps.length}</p>
+                                <p className="text-xs">Mapas Mentais</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border-light dark:border-border-dark text-sm">
+                            <div className="flex items-center gap-3 relative">
+                                <button onClick={() => setActiveVote({ sourceId: source.id, type: 'hot' })} className="flex items-center gap-1 text-gray-500 hover:text-red-500">
+                                    <span className="text-lg">🔥</span> {source.hot_votes || 0}
+                                </button>
+                                <button onClick={() => setActiveVote({ sourceId: source.id, type: 'cold' })} className="flex items-center gap-1 text-gray-500 hover:text-blue-500">
+                                    <span className="text-lg">❄️</span> {source.cold_votes || 0}
+                                </button>
+                                {activeVote?.sourceId === source.id && (
+                                    <div ref={votePopupRef} className="absolute -top-12 -left-2 z-10 bg-black/70 backdrop-blur-sm text-white rounded-full flex items-center p-1 gap-1 shadow-lg">
+                                        <button onClick={() => handleSourceVote(source.id, activeVote.type, 1)} className="p-1 hover:bg-white/20 rounded-full"><PlusIcon className="w-4 h-4" /></button>
+                                        <span className="text-sm font-bold w-4 text-center">{activeVote.type === 'hot' ? userVote?.hot_votes || 0 : userVote?.cold_votes || 0}</span>
+                                        <button onClick={() => handleSourceVote(source.id, activeVote.type, -1)} className="p-1 hover:bg-white/20 rounded-full"><MinusIcon className="w-4 h-4" /></button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex-grow" />
+                            <button onClick={() => setCommentingOn(source)} className="text-gray-500 hover:text-primary-light">Comentários ({source.comments?.length || 0})</button>
+                        </div>
+                    </div>
+                )})}
+            </div>
+        </div>
+    );
+};
+
+const AddSourceModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onProcess: (files: FileList, title: string) => void;
+}> = ({ isOpen, onClose, onProcess }) => {
+    const [title, setTitle] = useState('');
+    const [files, setFiles] = useState<FileList | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            setFiles(e.dataTransfer.files);
+        }
+    };
+    
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            setFiles(e.target.files);
+        }
+    };
+
+    const handleProcessClick = () => {
+        if (files && title.trim()) {
+            onProcess(files, title.trim());
+            onClose();
+        }
+    };
+
+    useEffect(() => {
+        if (!isOpen) {
+            setFiles(null);
+            setTitle('');
+            setIsDragging(false);
+        }
+    }, [isOpen]);
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Adicionar Nova Fonte de Estudo">
+            <div className="space-y-4">
+                <p className="text-sm">Defina um nome para a fonte e envie um ou mais arquivos (.pdf, .docx, .txt) para que a IA extraia o conteúdo e gere materiais de estudo automaticamente.</p>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1" htmlFor="sourceTitle">
+                        Nome da Fonte
+                    </label>
+                    <input
+                        id="sourceTitle"
+                        type="text"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        className="w-full px-3 py-2 bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark border border-border-light dark:border-border-dark rounded-md focus:outline-none focus:ring-2 focus:ring-primary-light"
+                        placeholder="Ex: Resumo sobre Política Monetária"
+                        required
+                    />
+                </div>
+                <div
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${isDragging ? 'border-primary-light bg-primary-light/10' : 'border-border-light dark:border-border-dark hover:border-primary-light/50'}`}
+                >
+                    <CloudArrowUpIcon className="w-12 h-12 text-gray-400 mb-2"/>
+                    <p className="font-semibold">Arraste e solte os arquivos aqui</p>
+                    <p className="text-sm text-gray-500">ou clique para selecionar</p>
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} multiple accept=".pdf,.docx,.txt,.md" className="hidden"/>
+                </div>
+                {files && (
+                    <div>
+                        <h4 className="font-semibold text-sm mb-1">Arquivos Selecionados:</h4>
+                        <ul className="text-xs list-disc list-inside bg-background-light dark:bg-background-dark p-2 rounded-md">
+                            {Array.from(files).map(f => <li key={f.name}>{f.name}</li>)}
+                        </ul>
+                    </div>
+                )}
+                <button onClick={handleProcessClick} disabled={!files || !title.trim()} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 flex items-center justify-center gap-2">
+                   <SparklesIcon className="w-5 h-5"/> Processar e Gerar Conteúdo
+                </button>
+            </div>
+        </Modal>
+    );
+};
+
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, setAppData, currentUser, updateUser, theme, setTheme, processingTasks, setProcessingTasks } = props;
@@ -105,7 +566,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Admin':
           return <AdminView appData={appData} setAppData={setAppData} />;
       case 'Fontes':
-          return <SourcesView appData={appData} setAppData={setAppData} currentUser={currentUser} processingTasks={processingTasks} setProcessingTasks={setProcessingTasks} />;
+          return <SourcesView appData={appData} setAppData={setAppData} currentUser={currentUser} updateUser={updateUser} processingTasks={processingTasks} setProcessingTasks={setProcessingTasks} />;
       default:
         return <div className="text-center mt-10">Selecione uma opção no menu.</div>;
     }
@@ -825,7 +1286,8 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
             }, {} as Record<string, any[]>);
             // Sort items within each group by temperature
             // Fix: Add type annotation for groupItems to avoid type inference issues.
-            Object.values(grouped).forEach((groupItems: { hot_votes: number; cold_votes: number }[]) => {
+            Object.keys(grouped).forEach(key => {
+                const groupItems: any[] = grouped[key];
                 groupItems.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
             });
             return grouped;
@@ -882,8 +1344,8 @@ const handleInteractionUpdate = async (
     const wasRead = existingInteraction?.is_read || false;
 
     let xpGained = 0;
-    // Grant XP if a flashcard is being marked as read (flipped) for the first time
-    if (contentType === 'flashcard' && update.is_read && !wasRead) {
+    // Grant XP if an item is being marked as read for the first time
+    if (update.is_read && !wasRead) {
         xpGained += 1;
     }
 
@@ -1050,7 +1512,7 @@ const handleGenerateNewContent = async (
     }
 };
 
-const renderSummaryWithTooltips = (summary: Summary) => {
+const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
     let content: (string | React.ReactElement)[] = [(summary.content || "")];
     
     // Replace markdown-like bolding with <strong> tags
@@ -1098,7 +1560,7 @@ const renderSummaryWithTooltips = (summary: Summary) => {
         }
         content = newContent;
     }
-    return <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{content}</div>;
+    return <div className={`prose dark:prose-invert max-w-none whitespace-pre-wrap ${fontSizeClass}`}>{content}</div>;
 }
 
 
@@ -1106,6 +1568,8 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
     const contentType: ContentType = 'summary';
+    const [fontSize, setFontSize] = useState(2); // 0: sm, 1: base, 2: lg, 3: xl, 4: 2xl
+    const fontSizeClasses = ['text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl'];
 
     useEffect(() => {
         if (filterTerm) {
@@ -1128,6 +1592,21 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
         generateModalOpen, setGenerateModalOpen, generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
     } = useContentViewController(allItems, currentUser, appData, contentType);
+    
+    const handleExpand = (summary: Summary) => {
+        const isExpanding = expanded !== summary.id;
+        setExpanded(isExpanding ? summary.id : null);
+
+        const interaction = appData.userContentInteractions.find(
+            i => i.user_id === currentUser.id && i.content_id === summary.id && i.content_type === contentType
+        );
+        const isAlreadyRead = interaction?.is_read || false;
+
+        if (isExpanding && !isAlreadyRead) {
+            handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, summary.id, { is_read: true });
+        }
+    };
+
 
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
         if (!commentingOn) return;
@@ -1153,12 +1632,12 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
     
     const renderItem = (summary: Summary & { user_id: string, created_at: string}) => (
         <div id={`summary-${summary.id}`} key={summary.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
-            <div onClick={() => setExpanded(expanded === summary.id ? null : summary.id)} className="cursor-pointer">
+            <div onClick={() => handleExpand(summary)} className="cursor-pointer">
                 <h3 className="text-xl font-bold">{summary.title}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{summary.source?.topic}</p>
                 {expanded === summary.id && (
                     <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                        {renderSummaryWithTooltips(summary)}
+                        {renderSummaryWithTooltips(summary, fontSizeClasses[fontSize])}
                     </div>
                 )}
             </div>
@@ -1186,6 +1665,26 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
             />
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: handleOpenGenerateModal, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             
+            <div className="flex justify-end items-center gap-2 mb-4">
+                <span className="text-sm font-semibold text-foreground-light dark:text-foreground-dark">Tamanho do Texto:</span>
+                <button
+                    onClick={() => setFontSize(s => Math.max(0, s - 1))}
+                    disabled={fontSize === 0}
+                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+                    title="Diminuir"
+                >
+                    <MinusIcon className="w-5 h-5" />
+                </button>
+                <button
+                    onClick={() => setFontSize(s => Math.min(fontSizeClasses.length - 1, s + 1))}
+                    disabled={fontSize === fontSizeClasses.length - 1}
+                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+                    title="Aumentar"
+                >
+                    <PlusIcon className="w-5 h-5" />
+                </button>
+            </div>
+
             <div className="space-y-4">
                 {Array.isArray(processedItems) 
                     ? processedItems.map(renderItem)
@@ -1353,18 +1852,20 @@ const NotebookGridView: React.FC<{
             );
         }
         
-        let id, name, questionCount, item, contentType, interactions, onSelect;
+        let id, name, questionCount, item, contentType, interactions, onSelect, resolvedCount;
         
         if (notebook === 'all') {
             id = 'all_notebooks';
             name = "Todas as Questões";
             questionCount = appData.sources.flatMap(s => s.questions).length;
+            resolvedCount = appData.userQuestionAnswers.filter(ans => ans.user_id === currentUser.id && ans.notebook_id === 'all_questions').length;
             onSelect = () => onSelectNotebook('all');
         } else if (notebook === 'favorites') {
              if (favoritedQuestionIds.length === 0) return null;
              id = 'favorites_notebook';
              name = "⭐ Questões Favoritas";
              questionCount = favoritedQuestionIds.length;
+             resolvedCount = appData.userQuestionAnswers.filter(ans => ans.user_id === currentUser.id && ans.notebook_id === 'favorites_notebook').length;
              onSelect = () => {
                  const favoriteNotebook: QuestionNotebook = {
                     id: 'favorites_notebook', user_id: currentUser.id, name: '⭐ Questões Favoritas', question_ids: favoritedQuestionIds,
@@ -1376,6 +1877,7 @@ const NotebookGridView: React.FC<{
             id = notebook.id;
             name = notebook.name;
             questionCount = notebook.question_ids.length;
+            resolvedCount = appData.userQuestionAnswers.filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebook.id).length;
             item = notebook;
             contentType = 'question_notebook';
             interactions = appData.userNotebookInteractions.filter(i => i.user_id === currentUser.id);
@@ -1389,7 +1891,10 @@ const NotebookGridView: React.FC<{
                     {notebook !== 'all' && notebook !== 'favorites' && (
                         <p className="text-xs text-gray-400 mt-1">por: {appData.users.find(u => u.id === notebook.user_id)?.pseudonym || 'Desconhecido'}</p>
                     )}
-                    <p className="text-right font-bold text-primary-light dark:text-primary-dark mt-4">{questionCount} Questões</p>
+                    <div className="text-right mt-4">
+                        <p className="font-bold text-primary-light dark:text-primary-dark">{questionCount} Questões</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">({resolvedCount}/{questionCount} resolvidas)</p>
+                    </div>
                 </div>
                 {item && contentType && interactions && (
                     <div className="p-2 border-t border-border-light dark:border-border-dark">
@@ -1452,7 +1957,9 @@ const NotebookDetailView: React.FC<{
 
     const questions = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        const idSet = new Set(notebook.question_ids);
+        // FIX: Explicitly cast `notebook.question_ids` to `string[]` as its type from the database is not guaranteed.
+        // This resolves a type error where `question_ids` was inferred as `unknown[]`.
+        const idSet = new Set((notebook.question_ids as string[]) || []);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
 
@@ -1567,6 +2074,33 @@ const NotebookDetailView: React.FC<{
         }
     };
     
+    const handleNextUnanswered = () => {
+        let nextIndex = -1;
+        // Search from current position to the end
+        for (let i = currentQuestionIndex + 1; i < questions.length; i++) {
+            if (!userAnswers.has(questions[i].id)) {
+                nextIndex = i;
+                break;
+            }
+        }
+        
+        // If not found, loop around from the beginning
+        if (nextIndex === -1) {
+            for (let i = 0; i < currentQuestionIndex; i++) {
+                if (!userAnswers.has(questions[i].id)) {
+                    nextIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (nextIndex !== -1) {
+            setCurrentQuestionIndex(nextIndex);
+        } else {
+            alert("Parabéns! Você respondeu todas as questões deste caderno.");
+        }
+    };
+    
     if (!currentQuestion) {
         return (
             <div>
@@ -1621,13 +2155,14 @@ const NotebookDetailView: React.FC<{
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
             <div className="flex justify-between items-center mb-4">
-                <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
-                <div className="flex items-center gap-4">
-                    <button onClick={() => setIsStatsModalOpen(true)} title="Ver estatísticas do caderno">
-                        <ChartBarSquareIcon className="w-6 h-6 text-gray-500 hover:text-primary-light"/>
+                 <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
+                    <button onClick={() => setIsStatsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary-light text-white text-sm font-semibold rounded-md hover:bg-emerald-600 transition-colors shadow-sm">
+                        <ChartBarSquareIcon className="w-5 h-5" />
+                        Estatísticas do Caderno
                     </button>
-                    <span className="font-semibold">{currentQuestionIndex + 1} / {questions.length}</span>
                 </div>
+                <span className="font-semibold">{currentQuestionIndex + 1} / {questions.length}</span>
             </div>
             
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
@@ -1690,9 +2225,16 @@ const NotebookDetailView: React.FC<{
             />
 
             <div className="mt-6 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                    <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
-                    <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === questions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
+                 <div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
+                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === questions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
+                    </div>
+                    <div className="mt-2">
+                        <button onClick={handleNextUnanswered} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">
+                            Próxima não respondida
+                        </button>
+                    </div>
                 </div>
 
                 <div className="relative group">
@@ -1876,7 +2418,7 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
             <div className="space-y-6">
                 {Array.isArray(processedNotebooks) 
                     ? renderGrid(processedNotebooks)
-                    : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, any[]]) => (
+                    : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, QuestionNotebook[]]) => (
                         <details key={groupKey} open className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
                              <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                             <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
@@ -2645,33 +3187,71 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
                 </div>
                 <div className="mt-8">
                     <h3 className="text-xl font-semibold mb-4">Conquistas</h3>
-                    {user.achievements.length > 0 ? (
-                        <div className="flex flex-wrap gap-4">
-                            {user.achievements.map((ach, i) => (
-                                <div key={i} className="flex items-center space-x-2 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 p-3 rounded-lg" title={ach}>
-                                <span>🏆</span>
-                                <span className="font-semibold">{ach}</span>
+                    <div className="flex flex-wrap gap-4">
+                        {/* FIX: Cast user.achievements to string[] to resolve type inference issues from database calls. */}
+                        {Array.isArray(user.achievements) && user.achievements.length > 0 ? (
+                            (user.achievements as string[]).slice().sort().map((ach: string) => (
+                                <div key={ach} className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 text-sm font-semibold px-3 py-1 rounded-full">
+                                    {ach}
                                 </div>
-                            ))}
-                        </div>
-                    ) : <p className="text-gray-500 dark:text-gray-400">Continue estudando para desbloquear conquistas!</p>}
+                            ))
+                        ) : (
+                            <p className="text-gray-500">Nenhuma conquista desbloqueada ainda.</p>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                    <h3 className="text-xl font-bold mb-4">Desempenho Geral</h3>
+                    <p className="text-center text-lg mb-4">{questionsAnswered} questões respondidas com <span className="font-bold">{overallAccuracy.toFixed(1)}%</span> de acerto.</p>
+                    <ResponsiveContainer width="100%" height={200}>
+                        <PieChart>
+                            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                    <h3 className="text-xl font-bold mb-4">Desempenho por Tópico (%)</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={barData} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis type="number" domain={[0, 100]} />
+                            <YAxis dataKey="name" type="category" width={80} />
+                            <Tooltip />
+                            <Bar dataKey="Acerto" fill="#8884d8" />
+                        </BarChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
              <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <h3 className="text-2xl font-bold mb-4">Meus Cadernos de Questões</h3>
-                <ContentToolbar sort={notebookSort} setSort={setNotebookSort as (s: SortOption) => void} />
-                <div className="space-y-4">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold">Seus Cadernos de Questões Criados</h3>
+                     <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">Ordenar por:</span>
+                        <button onClick={() => setNotebookSort('time')} title="Data" className={`p-1 rounded-md ${notebookSort === 'time' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🕐</span></button>
+                        <button onClick={() => setNotebookSort('temp')} title="Temperatura" className={`p-1 rounded-md ${notebookSort === 'temp' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🌡️</span></button>
+                     </div>
+                </div>
+                 <div className="space-y-4 max-h-96 overflow-y-auto">
                     {userNotebooks.length > 0 ? userNotebooks.map(notebook => (
                         <div key={notebook.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
-                            <h4 className="font-bold">{notebook.name}</h4>
-                            <p className="text-sm text-gray-500">{notebook.question_ids.length} questões</p>
+                            <div>
+                                <h4 className="font-semibold">{notebook.name}</h4>
+                                <p className="text-xs text-gray-500">{notebook.question_ids.length} questões - {new Date(notebook.created_at).toLocaleDateString()}</p>
+                            </div>
                             <ContentActions
                                 item={notebook}
-                                contentType="question_notebook"
+                                contentType={'question_notebook'}
                                 currentUser={user}
                                 interactions={appData.userNotebookInteractions.filter(i => i.user_id === user.id)}
-                                onVote={(id, type, inc) => handleNotebookVote(id, type, inc)}
+                                onVote={handleNotebookVote}
                                 onToggleRead={(id, state) => handleNotebookInteractionUpdate(id, { is_read: !state })}
                                 onToggleFavorite={(id, state) => handleNotebookInteractionUpdate(id, { is_favorite: !state })}
                                 onComment={() => setCommentingOnNotebook(notebook)}
@@ -2680,569 +3260,6 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
                     )) : <p className="text-gray-500">Você ainda não criou nenhum caderno de questões.</p>}
                 </div>
             </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-1 bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                    <h3 className="text-xl font-bold mb-4">Desempenho Geral</h3>
-                     <ResponsiveContainer width="100%" height={200}>
-                        <PieChart>
-                            <Pie data={pieData} cx="50%" cy="50%" labelLine={false} outerRadius={80} fill="#8884d8" dataKey="value">
-                                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                            </Pie>
-                            <Tooltip />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <p className="text-center text-2xl font-bold">{overallAccuracy.toFixed(1)}% de Acerto</p>
-                </div>
-                <div className="lg:col-span-2 bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                    <h3 className="text-xl font-bold mb-4">Desempenho por Matéria (%)</h3>
-                     <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={barData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar dataKey="Acerto" fill="#4f46e5" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
         </div>
     );
 };
-
-const AdminView: React.FC<{ appData: AppData; setAppData: React.Dispatch<React.SetStateAction<AppData>>; }> = ({ appData, setAppData }) => {
-    const handleDeleteUser = (userId: string) => {
-        if (window.confirm("Tem certeza que deseja remover este usuário? Esta ação é irreversível.")) {
-            setAppData({ ...appData, users: appData.users.filter(u => u.id !== userId) });
-        }
-    };
-
-    return (
-        <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-            <h2 className="text-2xl font-bold mb-4">Gerenciamento de Usuários</h2>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                    <thead>
-                        <tr className="border-b border-border-light dark:border-border-dark">
-                            <th className="p-2 text-foreground-light dark:text-foreground-dark">Pseudônimo</th>
-                            <th className="p-2 text-foreground-light dark:text-foreground-dark">Senha</th>
-                            <th className="p-2 text-foreground-light dark:text-foreground-dark">Nível</th>
-                            <th className="p-2 text-foreground-light dark:text-foreground-dark">XP</th>
-                            <th className="p-2 text-foreground-light dark:text-foreground-dark">Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {appData.users.filter(u => u.pseudonym !== 'admin').map(user => (
-                            <tr key={user.id} className="border-b border-border-light dark:border-border-dark">
-                                <td className="p-2 text-foreground-light dark:text-foreground-dark">{user.pseudonym}</td>
-                                <td className="p-2 text-foreground-light dark:text-foreground-dark">{user.password}</td>
-                                <td className="p-2 text-foreground-light dark:text-foreground-dark">{user.level}</td>
-                                <td className="p-2 text-foreground-light dark:text-foreground-dark">{user.xp}</td>
-                                <td className="p-2">
-                                    <button onClick={() => handleDeleteUser(user.id)} className="text-red-500 hover:text-red-700 font-semibold">Remover</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-};
-
-const ExploreSourceModal: React.FC<{
-    isOpen: boolean,
-    onClose: () => void,
-    onConfirm: (prompt: string) => void,
-    sourceTitle: string,
-    isLoading: boolean,
-}> = ({ isOpen, onClose, onConfirm, sourceTitle, isLoading }) => {
-    const [prompt, setPrompt] = useState("");
-    
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Explorar Mais Conteúdo em "${sourceTitle}"`}>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                A IA irá reanalisar a fonte para encontrar conteúdo inédito. Você pode guiar a busca com um prompt opcional.
-            </p>
-            <textarea 
-                value={prompt} 
-                onChange={e => setPrompt(e.target.value)} 
-                placeholder="Ex: 'Crie mais questões sobre o Comitê de Política Monetária (COPOM)'"
-                className="w-full h-24 p-2 mb-4 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md"
-            />
-            <button
-                onClick={() => onConfirm(prompt)}
-                disabled={isLoading}
-                className="w-full bg-secondary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-                {isLoading ? 'Explorando...' : <> <SparklesIcon className="w-5 h-5"/> Encontrar Conteúdo Inédito </>}
-            </button>
-        </Modal>
-    )
-}
-
-const SourcesView: React.FC<{
-    appData: AppData, 
-    setAppData: React.Dispatch<React.SetStateAction<AppData>>, 
-    currentUser: User,
-    processingTasks: {id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[],
-    setProcessingTasks: React.Dispatch<React.SetStateAction<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>>
-}> = ({ appData, setAppData, currentUser, processingTasks, setProcessingTasks }) => {
-    const [prompt, setPrompt] = useState<string>("");
-    const [title, setTitle] = useState<string>("");
-    const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-    const [isSelectSourceModalOpen, setSelectSourceModalOpen] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    
-    const [displayMode, setDisplayMode] = useState<'time' | 'temp' | 'user' | 'subject'>('time');
-    const [activeVote, setActiveVote] = useState<{ sourceId: string; type: 'hot' | 'cold' } | null>(null);
-    const [commentingOn, setCommentingOn] = useState<Source | null>(null);
-    const [editingSource, setEditingSource] = useState<{ id: string; title: string } | null>(null);
-    const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
-    const [exploringSource, setExploringSource] = useState<Source | null>(null);
-    const votePopupRef = useRef<HTMLDivElement>(null);
-    
-    const base64ToBlob = (base64: string, mimeType: string): Blob => {
-        const byteCharacters = atob(base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        return new Blob([byteArray], { type: mimeType });
-    };
-
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (files) {
-            const allowedTypes = ["application/pdf", "text/plain", "image/jpeg", "image/png", "audio/mpeg", "audio/wav", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"];
-// Fix: Explicitly type `file` and `f` as File to resolve property access errors.
-            const newFiles = Array.from(files).filter((file: File) => {
-                if (allowedTypes.includes(file.type)) {
-                    return true;
-                } else {
-                    alert(`Tipo de arquivo não suportado: ${file.name}`);
-                    return false;
-                }
-            });
-             setAttachedFiles(prev => {
-                const existingNames = new Set(prev.map((f: File) => f.name));
-                const uniqueNewFiles = newFiles.filter((f: File) => !existingNames.has(f.name));
-                return [...prev, ...uniqueNewFiles];
-            });
-        }
-        if(event.target) event.target.value = '';
-    };
-
-    const handleRemoveFile = (fileName: string) => {
-        setAttachedFiles(prev => prev.filter(f => f.name !== fileName));
-    };
-
-    const handleSelectSourcesForPrompt = (selectedSourceIds: string[]) => {
-        handleProcessSource(selectedSourceIds);
-        setSelectSourceModalOpen(false);
-    }
-    
-    const handleProcessSource = (contextSourceIds?: string[]) => {
-        if (attachedFiles.length === 0 && !prompt.trim()) {
-            alert("Por favor, anexe um ou mais arquivos ou escreva um prompt para gerar conteúdo.");
-            return;
-        }
-
-        if (attachedFiles.length === 0 && prompt.trim() && !contextSourceIds) {
-            setSelectSourceModalOpen(true);
-            return;
-        }
-
-        const taskId = `task_${Date.now()}`;
-        const taskName = title.trim() || (attachedFiles.length > 0 ? attachedFiles.map(f => f.name).join(', ') : `Prompt: ${prompt.substring(0, 30)}...`);
-        
-        const currentFiles = [...attachedFiles];
-        const currentPrompt = prompt;
-        const currentTitle = title;
-
-        setProcessingTasks(prev => [...prev, { id: taskId, name: taskName, status: 'processing', message: 'Iniciando...' }]);
-        setAttachedFiles([]);
-        setPrompt("");
-        setTitle("");
-
-        (async () => {
-            const updateTask = (message: string, status?: 'processing' | 'success' | 'error') => {
-                setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message, ...(status && { status }) } : t));
-            };
-
-            try {
-                let generatedData;
-                let finalStoragePaths: string[] = [];
-                let finalOriginalFilenames: string[] = [];
-
-                if (currentFiles.length > 0) {
-                    updateTask("Lendo os arquivos...");
-                    const textBasedFiles = currentFiles.filter(f => f.type === "text/plain" || f.type === "application/pdf" || f.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-                    if (textBasedFiles.length === 0) {
-                        throw new Error("Nenhum arquivo de texto (PDF, TXT, DOCX) foi fornecido para análise de conteúdo.");
-                    }
-                    const fileContents = await Promise.all(textBasedFiles.map(async file => {
-                        if (file.type === "text/plain") return file.text();
-                        if (file.type === "application/pdf") {
-                            const typedarray = new Uint8Array(await file.arrayBuffer());
-                            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                            let text = '';
-                            for (let i = 1; i <= pdf.numPages; i++) {
-                                const page = await pdf.getPage(i);
-                                const content = await page.getTextContent();
-                                text += content.items.map((item: any) => item.str).join(' ') + '\n';
-                            }
-                            return text;
-                        }
-                        if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-                            const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-                            return result.value;
-                        }
-                        return "";
-                    }));
-                    const combinedTextContent = fileContents.join('\n\n---\n\n');
-                    updateTask("Analisando o conteúdo com a IA...");
-                    const existingTopics = appData.sources.map(s => ({ materia: s.materia, topic: s.topic }));
-                    generatedData = await processAndGenerateAllContentFromSource(combinedTextContent, existingTopics);
-                } else {
-                    updateTask("Gerando conteúdo a partir do prompt...");
-                    const contextSources = appData.sources.filter(s => contextSourceIds!.includes(s.id));
-                    generatedData = await generateContentFromPromptAndSources(currentPrompt, contextSources);
-                    finalOriginalFilenames.push(`Gerado a partir do prompt: "${currentPrompt}"`);
-                }
-                
-                if (generatedData.error) throw new Error(generatedData.error);
-
-                let mindMapPayload = [];
-                if (generatedData.mindMapTopics && generatedData.mindMapTopics.length > 0) {
-                    for (let i = 0; i < generatedData.mindMapTopics.length; i++) {
-                        const topic = generatedData.mindMapTopics[i];
-                        updateTask(`Gerando mapa mental ${i + 1}/${generatedData.mindMapTopics.length}: ${topic.title}...`);
-                        const imageResult = await generateImageForMindMap(topic.prompt);
-                        if (imageResult.base64Image) {
-                            const imageBlob = base64ToBlob(imageResult.base64Image, 'image/png');
-                            const mindMapFile = new File([imageBlob], `mindmap_${Date.now()}_${i}.png`, { type: 'image/png' });
-                            const mindMapPath = `${currentUser.id}/mind_maps/${mindMapFile.name}`;
-                            const { error } = await supabase!.storage.from('sources').upload(mindMapPath, mindMapFile);
-                            if (!error) {
-                                const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(mindMapPath);
-                                mindMapPayload.push({ title: topic.title, imageUrl: publicUrl });
-                            }
-                        }
-                    }
-                }
-                
-                if (currentFiles.length > 0) {
-                    updateTask("Salvando arquivos no banco de dados...");
-                    const sanitize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '');
-                    const uploads = await Promise.all(currentFiles.map(file => {
-                        const path = `${currentUser.id}/${Date.now()}_${sanitize(file.name)}`;
-                        return supabase!.storage.from('sources').upload(path, file).then(res => ({...res, file}));
-                    }));
-                    uploads.forEach(res => {
-                        if (res.error) throw new Error(`Erro ao salvar ${res.file.name}: ${res.error.message}`);
-                        finalStoragePaths.push(res.data.path);
-                        finalOriginalFilenames.push(res.file.name);
-                    });
-                }
-
-                updateTask("Finalizando...");
-                const sourcePayload: Partial<Source> = { user_id: currentUser.id, title: currentTitle.trim() || generatedData.title, summary: generatedData.summary, original_filename: finalOriginalFilenames, storage_path: finalStoragePaths, materia: generatedData.materia, topic: generatedData.topic, hot_votes: 0, cold_votes: 0, comments: [] };
-                const newSource = await addSource(sourcePayload);
-                if (!newSource) throw new Error("Falha ao criar o registro da fonte.");
-                
-                const createdContent = await addGeneratedContent(newSource.id, {...generatedData, mind_maps: mindMapPayload });
-                if (!createdContent) throw new Error("Falha ao salvar o conteúdo gerado.");
-
-                const newSourceWithContent: Source = {
-                    ...newSource,
-                    summaries: createdContent.summaries,
-                    flashcards: createdContent.flashcards,
-                    questions: createdContent.questions,
-                    mind_maps: createdContent.mind_maps,
-                    audio_summaries: [],
-                };
-                setAppData(prev => ({ ...prev, sources: [newSourceWithContent, ...prev.sources]}));
-                
-                updateTask("Fonte processada com sucesso!", 'success');
-                setTimeout(() => {
-                    setProcessingTasks(prev => prev.filter(t => t.id !== taskId));
-                }, 5000);
-
-            } catch (error: any) {
-                updateTask(`Erro: ${error.message}`, 'error');
-            }
-        })();
-    };
-
-    const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
-        if (!commentingOn) return;
-        let updatedComments = [...(commentingOn.comments || [])];
-        if (action === 'add') {
-            const newComment: Comment = { id: `c_${Date.now()}`, authorId: currentUser.id, authorPseudonym: currentUser.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 };
-            updatedComments.push(newComment);
-        } else if (action === 'vote') {
-             const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
-            if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
-            }
-        }
-        
-        const success = await updateContentComments('sources', commentingOn.id, updatedComments);
-        if (success) {
-            const updatedSource = {...commentingOn, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedSource.id ? updatedSource : s) }));
-            setCommentingOn(updatedSource);
-        }
-    };
-    
-    const handleSourceVote = async (sourceId: string, type: 'hot' | 'cold', increment: 1 | -1) => {
-        const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === sourceId);
-        if (increment === -1) {
-            if (type === 'hot' && (userVote?.hot_votes || 0) <= 0) return;
-            if (type === 'cold' && (userVote?.cold_votes || 0) <= 0) return;
-        }
-
-        const source = appData.sources.find(s => s.id === sourceId);
-        const author = source ? appData.users.find(u => u.id === source.user_id) : null;
-        const isOwnContent = !author || author.id === currentUser.id;
-
-        setAppData(prev => {
-            const newVotes = [...prev.userSourceVotes];
-            const voteIndex = newVotes.findIndex(v => v.user_id === currentUser.id && v.source_id === sourceId);
-            if(voteIndex > -1) {
-                newVotes[voteIndex] = {...newVotes[voteIndex], [`${type}_votes`]: newVotes[voteIndex][`${type}_votes`] + increment};
-            } else {
-                newVotes.push({ id: `temp_${Date.now()}`, user_id: currentUser.id, source_id: sourceId, hot_votes: type === 'hot' ? 1 : 0, cold_votes: type === 'cold' ? 1 : 0 });
-            }
-            
-            const newSources = prev.sources.map(s => 
-                s.id === sourceId ? { ...s, [`${type}_votes`]: s[`${type}_votes`] + increment } : s
-            );
-            return { ...prev, userSourceVotes: newVotes, sources: newSources };
-        });
-
-        await upsertUserVote('user_source_votes', { user_id: currentUser.id, source_id: sourceId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'source_id']);
-        await incrementVoteCount('increment_source_vote', sourceId, `${type}_votes`, increment);
-
-        if (author && !isOwnContent) {
-            const xpChange = (type === 'hot' ? 1 : -1) * increment;
-            const updatedAuthor = { ...author, xp: author.xp + xpChange };
-            const result = await supabaseUpdateUser(updatedAuthor);
-            if (result) {
-                setAppData(prev => ({
-                    ...prev,
-                    users: prev.users.map(u => u.id === result.id ? result : u)
-                }));
-            }
-        }
-    };
-
-    const handleStartEditing = (source: Source) => {
-        setEditingSource({ id: source.id, title: source.title });
-    };
-    const handleCancelEditing = () => setEditingSource(null);
-    const handleSaveTitle = async () => {
-        if (!editingSource || !editingSource.title.trim()) {
-            handleCancelEditing();
-            return;
-        }
-        const originalSource = appData.sources.find(s => s.id === editingSource.id);
-        if (originalSource && originalSource.title !== editingSource.title) {
-            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === editingSource.id ? { ...s, title: editingSource.title } : s) }));
-            const updated = await updateSource(editingSource.id, { title: editingSource.title });
-            if (!updated) {
-                setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === editingSource.id ? originalSource : s) }));
-                alert("Falha ao atualizar o título.");
-            }
-        }
-        setEditingSource(null);
-    };
-
-    const handleConfirmDelete = async () => {
-        if (!sourceToDelete) return;
-        const success = await deleteSource(sourceToDelete.id, sourceToDelete.storage_path);
-        if (success) {
-            setAppData(prev => ({
-                ...prev,
-                sources: prev.sources.filter(s => s.id !== sourceToDelete.id)
-            }));
-        } else {
-            alert("Falha ao excluir a fonte. Tente novamente.");
-        }
-        setSourceToDelete(null);
-    };
-
-    const handleExploreSource = async (userPrompt: string) => {
-        if (!exploringSource) return;
-
-        const taskId = `explore_${exploringSource.id}_${Date.now()}`;
-        const updateTask = (message: string, status?: 'processing' | 'success' | 'error') => {
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message, ...(status && { status }) } : t));
-        };
-        
-        const source = exploringSource; // Capture the source before closing the modal
-        setExploringSource(null); // Close modal immediately
-        setProcessingTasks(prev => [...prev, { id: taskId, name: `Explorando: ${source.title}`, status: 'processing', message: 'Iniciando...' }]);
-
-        try {
-            updateTask("Buscando e lendo o arquivo original...");
-            let textContent = '';
-            if (source.storage_path && source.storage_path.length > 0) {
-                const fileContents = await Promise.all(source.storage_path.map(async (path) => {
-                    if (!supabase) return "";
-                    const { data: { publicUrl } } = supabase.storage.from('sources').getPublicUrl(path);
-                    if (!publicUrl) return "";
-                    
-                    const response = await fetch(publicUrl);
-                    if (!response.ok) return "";
-
-                    const blob = await response.blob();
-                    const fileName = path.split('/').pop() || 'file';
-                    
-                    if (fileName.endsWith('.txt')) {
-                        return blob.text();
-                    }
-                    if (fileName.endsWith('.pdf')) {
-                        const typedarray = new Uint8Array(await blob.arrayBuffer());
-                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                        let text = '';
-                        for (let i = 1; i <= pdf.numPages; i++) {
-                            const page = await pdf.getPage(i);
-                            const content = await page.getTextContent();
-                            text += content.items.map((item: any) => item.str).join(' ') + '\n';
-                        }
-                        return text;
-                    }
-                    if (fileName.endsWith('.docx')) {
-                        const result = await mammoth.extractRawText({ arrayBuffer: await blob.arrayBuffer() });
-                        return result.value;
-                    }
-                    return "";
-                }));
-                textContent = fileContents.join('\n\n---\n\n');
-            } else {
-                // Fallback for sources created from prompt only
-                textContent = `Título: ${source.title}\nResumo: ${source.summary}`;
-            }
-            
-            if (!textContent.trim()) {
-                throw new Error("Não foi possível ler o conteúdo da fonte original.");
-            }
-
-            updateTask("Analisando com IA para encontrar conteúdo inédito...");
-            const existingContent = {
-                summaries: source.summaries.map(s => ({ title: s.title, content: s.content })),
-                flashcards: source.flashcards.map(f => ({ front: f.front, back: f.back })),
-                questions: source.questions.map(q => ({ questionText: q.questionText })),
-            };
-            const newContent = await generateMoreContentFromSource(textContent, existingContent, userPrompt);
-
-            if (newContent.error) throw new Error(newContent.error);
-            if (newContent.summaries.length === 0 && newContent.flashcards.length === 0 && newContent.questions.length === 0) {
-                updateTask("Nenhum conteúdo inédito encontrado.", 'success');
-                setTimeout(() => setProcessingTasks(prev => prev.filter(t => t.id !== taskId)), 5000);
-                return;
-            }
-
-            updateTask("Salvando novo conteúdo...");
-            const added = await appendGeneratedContentToSource(source.id, newContent);
-            if (added) {
-                setAppData(prev => ({
-                    ...prev,
-                    sources: prev.sources.map(s => s.id === source.id ? {
-                        ...s,
-                        summaries: [...s.summaries, ...added.newSummaries],
-                        flashcards: [...s.flashcards, ...added.newFlashcards],
-                        questions: [...s.questions, ...added.newQuestions],
-                    } : s)
-                }));
-                updateTask("Novo conteúdo adicionado com sucesso!", 'success');
-                setTimeout(() => setProcessingTasks(prev => prev.filter(t => t.id !== taskId)), 5000);
-            } else {
-                 throw new Error("Falha ao salvar o novo conteúdo no banco de dados.");
-            }
-
-        } catch(error: any) {
-            updateTask(`Erro: ${error.message}`, 'error');
-            console.error("Error exploring source:", error);
-        }
-    };
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (votePopupRef.current && !votePopupRef.current.contains(event.target as Node)) {
-                setActiveVote(null);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const processedSources = useMemo(() => {
-        const sources = [...appData.sources];
-        if (displayMode === 'time') {
-            return sources.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        }
-        if (displayMode === 'temp') {
-            return sources.sort((a, b) => {
-                const tempA = (a.hot_votes || 0) - (a.cold_votes || 0);
-                const tempB = (b.hot_votes || 0) - (b.cold_votes || 0);
-                if (tempB !== tempA) return tempB - tempA;
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-            });
-        }
-        if (displayMode === 'user' || displayMode === 'subject') {
-            const key = displayMode === 'user' ? 'user_id' : 'materia';
-            return sources.reduce((acc, source) => {
-                const groupKey = source[key as keyof Source] as string || 'Outros';
-                if (!acc[groupKey]) acc[groupKey] = [];
-                acc[groupKey].push(source);
-                return acc;
-            }, {} as Record<string, Source[]>);
-        }
-        return sources;
-    }, [appData.sources, displayMode]);
-    
-    const SourceItemContent: React.FC<{source: Source}> = ({ source }) => {
-        const canManage = source.user_id === currentUser.id || currentUser.pseudonym === 'admin';
-        const isEditing = editingSource?.id === source.id;
-        const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === source.id);
-        
-        const contentCounts = [
-            { icon: BookOpenIcon, count: source.summaries.length, label: "Resumos" },
-            { icon: SparklesIcon, count: source.flashcards.length, label: "Flash Cards" },
-            { icon: QuestionMarkCircleIcon, count: source.questions.length, label: "Questões" },
-            { icon: ShareIcon, count: source.mind_maps.length, label: "Mapas Mentais" },
-            { icon: SpeakerWaveIcon, count: source.audio_summaries.length, label: "Resumos em Áudio" },
-        ];
-        
-        return (
-             <details key={source.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark data-[grouped='true']:bg-background-light data-[grouped='true']:dark:bg-background-dark">
-                <summary className="flex justify-between items-start cursor-pointer">
-                    <div className="flex-1 min-w-0">
-                        {isEditing ? (
-                            <input type="text" value={editingSource!.title} autoFocus
-                                onChange={(e) => editingSource && setEditingSource({ ...editingSource, title: e.target.value })}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleSaveTitle(); if (e.key === 'Escape') handleCancelEditing(); }}
-                                onBlur={handleSaveTitle}
-                                onClick={e => e.stopPropagation()}
-                                className="w-full text-xl font-bold bg-transparent border-b-2 border-primary-light outline-none"
-                            />
-                        ) : (
-                            <div className="flex items-center gap-2">
-                                <p className="text-xl font-bold">{source.title}</p>
-                                {canManage && (
-                                    <div className="flex items-center">
-                                        <button onClick={(e) => { e.stopPropagation(); handleStartEditing(source); }} className="text-gray-400 hover:text-primary-light dark:hover:text-primary-dark transition-colors p-1" title="Editar título">
-                                            <PencilIcon className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); setSourceToDelete(source); }} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="Excluir fonte">
-                                            <TrashIcon className="w-4 h-4" />
-                                        </button>
-                                        <button disabled={!!exploringSource} onClick={(e) => { e.stopPropagation(); setExploringSource(source); }} className="text-gray-400 hover:text-secondary-light dark:hover:text-secondary-dark transition-colors p-1 disabled:opacity-50 disabled:cursor-wait" title="Explorar mais conteúdo com IA">
-                                            {processingTasks.some(t => t.id.startsWith(`explore_${source.id}`)) ? <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> : <SparklesIcon className="w-4 h-
