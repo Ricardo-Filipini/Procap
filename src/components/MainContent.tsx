@@ -620,7 +620,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Comunidade':
           return <CommunityView appData={appData} setAppData={setAppData} currentUser={currentUser} onNavigate={handleChatNavigation}/>;
       case 'Perfil':
-          return <ProfileView user={currentUser} updateUser={updateUser} appData={appData} setAppData={setAppData} onNavigate={handleChatNavigation} />;
+          return <ProfileView user={currentUser} appData={appData} setAppData={setAppData} onNavigate={handleChatNavigation} />;
       case 'Admin':
           return <AdminView appData={appData} setAppData={setAppData} />;
       case 'Fontes':
@@ -2327,7 +2327,11 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
     }, [filterTerm, clearFilter, appData.questionNotebooks]);
 
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
-        // Optimistic UI update
+        if (!supabase) {
+            console.error("Supabase not initialized");
+            return;
+        }
+        
         let newInteractions = [...appData.userNotebookInteractions];
         const existingIndex = newInteractions.findIndex(i => i.user_id === currentUser.id && i.notebook_id === notebookId);
         if (existingIndex > -1) {
@@ -2337,12 +2341,13 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
         }
         setAppData(prev => ({...prev, userNotebookInteractions: newInteractions }));
 
-        // DB update
-        const result = await upsertUserVote('user_notebook_interactions', { user_id: currentUser.id, notebook_id: notebookId, ...update }, ['user_id', 'notebook_id']);
-        if (!result) {
-            console.error("Failed to update notebook interaction.");
-            // Revert on failure
-            setAppData(appData);
+        const { error } = await supabase
+            .from('user_notebook_interactions')
+            .upsert({ user_id: currentUser.id, notebook_id: notebookId, ...update }, { onConflict: 'user_id,notebook_id' });
+        
+        if (error) {
+            console.error("Failed to update notebook interaction.", error);
+            setAppData(appData); // Revert
         }
     };
     
@@ -2851,8 +2856,10 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
             .subscribe();
 
         return () => {
-            supabase.removeChannel(chatChannel);
-            supabase.removeChannel(voteChannel);
+            if (supabase) {
+                supabase.removeChannel(chatChannel);
+                supabase.removeChannel(voteChannel);
+            }
         };
     }, [setAppData]);
 
@@ -3070,7 +3077,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     );
 };
 
-const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>, updateUser: (user: User) => void, onNavigate: (viewName: string, term: string) => void; }> = ({ user, appData, setAppData, updateUser, onNavigate }) => {
+const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>, onNavigate: (viewName: string, term: string) => void; }> = ({ user, appData, setAppData, onNavigate }) => {
     const { correctAnswers, questionsAnswered, topicPerformance } = user.stats;
     const overallAccuracy = questionsAnswered > 0 ? (correctAnswers / questionsAnswered) * 100 : 0;
     const pieData = [ { name: 'Corretas', value: correctAnswers }, { name: 'Incorretas', value: questionsAnswered - correctAnswers } ];
@@ -3155,7 +3162,11 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
     }, [appData.questionNotebooks, user.id, notebookSort]);
 
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
-        // Optimistic UI update
+        if (!supabase) {
+            console.error("Supabase not initialized");
+            return;
+        }
+        
         let newInteractions = [...appData.userNotebookInteractions];
         const existingIndex = newInteractions.findIndex(i => i.user_id === user.id && i.notebook_id === notebookId);
         if (existingIndex > -1) {
@@ -3165,12 +3176,13 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
         }
         setAppData(prev => ({...prev, userNotebookInteractions: newInteractions }));
 
-        // DB update
-        const result = await upsertUserVote('user_notebook_interactions', { user_id: user.id, notebook_id: notebookId, ...update }, ['user_id', 'notebook_id']);
-        if (!result) {
-            console.error("Failed to update notebook interaction.");
-            // Revert on failure
-            setAppData(appData);
+        const { error } = await supabase
+            .from('user_notebook_interactions')
+            .upsert({ user_id: user.id, notebook_id: notebookId, ...update }, { onConflict: 'user_id,notebook_id' });
+        
+        if (error) {
+            console.error("Failed to update notebook interaction.", error);
+            setAppData(appData); // Revert
         }
     };
     
@@ -3287,7 +3299,7 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
                         <ResponsiveContainer width="100%" height={200}>
                             <PieChart>
                                 <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                    {pieData.map((_entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                 </Pie>
                                 <Tooltip />
                                 <Legend />
