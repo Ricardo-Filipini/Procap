@@ -1,4 +1,3 @@
-import React from 'react';
 import { AppData, View } from './types';
 import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon } from './components/Icons';
 

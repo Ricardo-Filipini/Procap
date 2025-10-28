@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Theme, View, AppData, User, Summary, Flashcard, Question, ChatMessage, Comment, Source, AudioSummary, MindMap, UserMessageVote, UserSourceVote, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../types';
+import { Theme, View, AppData, User, Summary, Flashcard, Question, ChatMessage, Comment, Source, AudioSummary, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../types';
 import { VIEWS, ACHIEVEMENTS } from '../constants';
-// Fix: Import Bars3Icon.
-import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, ClockIcon, PlusIcon, MinusIcon, PaperClipIcon, GoogleIcon, CloudArrowUpIcon, BookOpenIcon, PencilIcon, FireIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, FunnelIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, Squares2X2Icon, Bars3Icon, QuestionMarkCircleIcon, ShareIcon, SpeakerWaveIcon, CheckCircleIcon, Cog6ToothIcon, MagnifyingGlassIcon } from './Icons';
-import { getSimpleChatResponse, getPersonalizedStudyPlan, processAndGenerateAllContentFromSource, generateImageForMindMap, filterItemsByPrompt, generateSpecificContent, generateNotebookName, generateMoreContentFromSource, generateContentFromPromptAndSources } from '../services/geminiService';
-// Fix: Import addCommentToContent from supabaseClient.
-import { addChatMessage, supabase, addSource, addGeneratedContent, addSourceComment, updateSource, deleteSource, upsertUserContentInteraction, incrementContentVote, upsertUserVote, incrementVoteCount, addQuestionNotebook, updateQuestionNotebook, deleteQuestionNotebook, addNotebookComment, upsertUserQuestionAnswer, addCommentToContent, clearNotebookAnswers, updateContentComments, updateUser as supabaseUpdateUser, addAudioSummary, appendGeneratedContentToSource } from '../services/supabaseClient';
+import { SunIcon, MoonIcon, PaperAirplaneIcon, UserCircleIcon, PlusIcon, MinusIcon, CloudArrowUpIcon, PencilIcon, TrashIcon, DocumentTextIcon, StarIcon, EyeIcon, XMarkIcon, SparklesIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon } from './Icons';
+import { getSimpleChatResponse, getPersonalizedStudyPlan, processAndGenerateAllContentFromSource, generateImageForMindMap, filterItemsByPrompt, generateSpecificContent, generateNotebookName } from '../services/geminiService';
+import { addChatMessage, supabase, addSource, addGeneratedContent, updateSource, deleteSource, upsertUserContentInteraction, incrementContentVote, upsertUserVote, incrementVoteCount, addQuestionNotebook, upsertUserQuestionAnswer, clearNotebookAnswers, updateContentComments, updateUser as supabaseUpdateUser, addAudioSummary } from '../services/supabaseClient';
 import { Modal } from './Modal';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import * as mammoth from 'mammoth';
@@ -94,7 +92,6 @@ const checkAndAwardAchievements = (user: User, appData: AppData): User => {
     return user;
 };
 
-// Fix: Define AdminView to resolve 'Cannot find name' error.
 const AdminView: React.FC<{ appData: AppData; setAppData: React.Dispatch<React.SetStateAction<AppData>>; }> = ({ appData }) => (
     <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
       <h2 className="text-2xl font-bold mb-4">Painel Administrativo</h2>
@@ -110,8 +107,7 @@ const AdminView: React.FC<{ appData: AppData; setAppData: React.Dispatch<React.S
     </div>
 );
 
-// Fix: Define SourcesView to resolve 'Cannot find name' error.
-const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'currentUser' | 'updateUser' | 'processingTasks' | 'setProcessingTasks'>> = ({ appData, setAppData, currentUser, updateUser, processingTasks, setProcessingTasks }) => {
+const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'currentUser' | 'processingTasks' | 'setProcessingTasks'>> = ({ appData, setAppData, currentUser, processingTasks, setProcessingTasks }) => {
     const [isAddSourceModalOpen, setIsAddSourceModalOpen] = useState(false);
     const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
     const [sourceToRename, setSourceToRename] = useState<Source | null>(null);
@@ -153,7 +149,6 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
     };
 
     const handleProcessFiles = async (files: FileList, title: string) => {
-        // FIX: Error on line 562. Iterate directly over FileList as it is iterable. This helps TypeScript correctly infer `file` as type `File`.
         for (const file of files) {
             const taskId = `task_${file.name}_${Date.now()}`;
             setProcessingTasks(prev => [...prev, { id: taskId, name: file.name, message: 'Iniciando processamento...', status: 'processing' }]);
@@ -278,7 +273,19 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
         if (increment === -1 && currentVoteCount <= 0) return;
 
         setAppData(prev => {
-            const newVotes = prev.userSourceVotes.map(v => (v.user_id === currentUser.id && v.source_id === sourceId) ? { ...v, [`${type}_votes`]: (v[`${type}_votes`] || 0) + increment } : v);
+            const newVotes = prev.userSourceVotes.map(v => {
+                if (v.user_id === currentUser.id && v.source_id === sourceId) {
+                    const updatedVote = { ...v };
+                    if (type === 'hot') {
+                        updatedVote.hot_votes = (updatedVote.hot_votes || 0) + increment;
+                    } else {
+                        updatedVote.cold_votes = (updatedVote.cold_votes || 0) + increment;
+                    }
+                    return updatedVote;
+                }
+                return v;
+            });
+
             if (!newVotes.some(v => v.user_id === currentUser.id && v.source_id === sourceId)) {
                  newVotes.push({ id: `temp_src_vote_${Date.now()}`, user_id: currentUser.id, source_id: sourceId, hot_votes: type === 'hot' ? increment : 0, cold_votes: type === 'cold' ? increment : 0 });
             }
@@ -311,7 +318,11 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+                if (payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -613,7 +624,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Admin':
           return <AdminView appData={appData} setAppData={setAppData} />;
       case 'Fontes':
-          return <SourcesView appData={appData} setAppData={setAppData} currentUser={currentUser} updateUser={updateUser} processingTasks={processingTasks} setProcessingTasks={setProcessingTasks} />;
+          return <SourcesView appData={appData} setAppData={setAppData} currentUser={currentUser} processingTasks={processingTasks} setProcessingTasks={setProcessingTasks} />;
       default:
         return <div className="text-center mt-10">Selecione uma opção no menu.</div>;
     }
@@ -924,7 +935,6 @@ const GenerateContentModal: React.FC<{
     );
 };
 
-// Fix: Define CreateNotebookModal to resolve 'Cannot find name' error.
 const CreateNotebookModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
@@ -1275,7 +1285,6 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
     const [filter, setFilter] = useState<FilterStatus>('all');
     const [favoritesOnly, setFavoritesOnly] = useState(false);
     const [aiFilterIds, setAiFilterIds] = useState<string[] | null>(null);
-    const [isFiltering, setIsFiltering] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [generateModalOpen, setGenerateModalOpen] = useState(false);
     const [generationPrompt, setGenerationPrompt] = useState("");
@@ -1332,7 +1341,6 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
                 return acc;
             }, {} as Record<string, any[]>);
             // Sort items within each group by temperature
-            // Fix: Add type annotation for groupItems to avoid type inference issues.
             Object.keys(grouped).forEach(key => {
                 const groupItems: any[] = grouped[key];
                 groupItems.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
@@ -1345,7 +1353,7 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
     
     const handleAiFilter = async (prompt: string) => {
         if (!prompt) return;
-        setIsFiltering(true);
+        setAiFilterIds(null); // Reset while filtering
         const itemsToFilter = allItems.map(item => {
             let text = '';
             if (contentType === 'summary') text = item.title + " " + item.content;
@@ -1357,7 +1365,6 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
         });
         const relevantIds = await filterItemsByPrompt(prompt, itemsToFilter);
         setAiFilterIds(relevantIds);
-        setIsFiltering(false);
     };
     
     const handleClearFilter = () => setAiFilterIds(null);
@@ -1369,7 +1376,7 @@ const useContentViewController = (allItems: any[], currentUser: User, appData: A
     
     return {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, setAiFilterIds, isFiltering, setIsFiltering,
+        aiFilterIds,
         isGenerating, setIsGenerating, generateModalOpen, setGenerateModalOpen,
         generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
@@ -1435,7 +1442,6 @@ const handleVoteUpdate = async (
     currentUser: User,
     updateUser: (user: User) => void,
     appData: AppData,
-    // Fix: Narrow contentType to only include types with votable content tables.
     contentType: 'summary' | 'flashcard' | 'question' | 'mind_map' | 'audio_summary',
     contentId: string,
     type: 'hot' | 'cold',
@@ -1634,7 +1640,7 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, isFiltering, isGenerating, setIsGenerating,
+        aiFilterIds, isGenerating, setIsGenerating,
         generateModalOpen, setGenerateModalOpen, generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
     } = useContentViewController(allItems, currentUser, appData, contentType);
@@ -1663,8 +1669,11 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
+                if(payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -1751,7 +1760,7 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, isFiltering, isGenerating, setIsGenerating,
+        aiFilterIds, isGenerating, setIsGenerating,
         generateModalOpen, setGenerateModalOpen, generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
     } = useContentViewController(allItems, currentUser, appData, contentType);
@@ -1765,8 +1774,11 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
+                if (payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -1854,12 +1866,11 @@ const NotebookGridView: React.FC<{
     appData: AppData;
     setAppData: React.Dispatch<React.SetStateAction<AppData>>;
     currentUser: User;
-    updateUser: (user: User) => void;
     onSelectNotebook: (notebook: QuestionNotebook | 'all') => void;
     handleNotebookInteractionUpdate: (notebookId: string, update: Partial<UserNotebookInteraction>) => void;
     handleNotebookVote: (notebookId: string, type: 'hot' | 'cold', increment: 1 | -1) => void;
     setCommentingOnNotebook: (notebook: QuestionNotebook) => void;
-}> = ({ notebooks, appData, setAppData, currentUser, updateUser, onSelectNotebook, handleNotebookInteractionUpdate, handleNotebookVote, setCommentingOnNotebook }) => {
+}> = ({ notebooks, appData, setAppData, currentUser, onSelectNotebook, handleNotebookInteractionUpdate, handleNotebookVote, setCommentingOnNotebook }) => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     const favoritedQuestionIds = useMemo(() => {
@@ -1986,7 +1997,6 @@ const NotebookDetailView: React.FC<{
 
     const questions = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: Error on line 2071. Use a double cast to handle `unknown[]` from database types.
         const idSet = new Set((notebook.question_ids as unknown as string[]) || []);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -2027,8 +2037,11 @@ const NotebookDetailView: React.FC<{
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
+                if (payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -2368,7 +2381,13 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
             updatedComments.push({ id: `c_${Date.now()}`, authorId: currentUser.id, authorPseudonym: currentUser.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 });
         } else {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
-            if (commentIndex > -1) updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+            if (commentIndex > -1) {
+                if(payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
+            }
         }
         
         const success = await updateContentComments('question_notebooks', commentingOnNotebook.id, updatedComments);
@@ -2421,7 +2440,6 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
             appData={appData}
             setAppData={setAppData}
             currentUser={currentUser}
-            updateUser={updateUser}
             onSelectNotebook={setSelectedNotebook}
             handleNotebookInteractionUpdate={handleNotebookInteractionUpdate}
             handleNotebookVote={handleNotebookVote}
@@ -2469,7 +2487,7 @@ const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_a
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        isFiltering, aiFilterIds,
+        aiFilterIds,
         processedItems, handleAiFilter, handleClearFilter,
     } = useContentViewController(allItems, currentUser, appData, contentType);
 
@@ -2482,8 +2500,11 @@ const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_a
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
+                if(payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -2646,7 +2667,7 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, isFiltering,
+        aiFilterIds,
         processedItems, handleAiFilter, handleClearFilter,
     } = useContentViewController(allItems, currentUser, appData, contentType);
 
@@ -2659,8 +2680,11 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex].hot_votes += payload.voteType === 'hot' ? 1 : 0;
-                updatedComments[commentIndex].cold_votes += payload.voteType === 'cold' ? 1 : 0;
+                if(payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
             }
         }
         
@@ -2866,11 +2890,18 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         const isOwnContent = !author || author.id === currentUser.id;
 
         setAppData(prev => {
-            const newVotes = prev.userMessageVotes.map(v => 
-                (v.user_id === currentUser.id && v.message_id === messageId)
-                ? { ...v, [`${type}_votes`]: v[`${type}_votes`] + increment }
-                : v
-            );
+            const newVotes = prev.userMessageVotes.map(v => {
+                if (v.user_id === currentUser.id && v.message_id === messageId) {
+                    const updatedVote = { ...v };
+                    if (type === 'hot') {
+                        updatedVote.hot_votes = (updatedVote.hot_votes || 0) + increment;
+                    } else {
+                        updatedVote.cold_votes = (updatedVote.cold_votes || 0) + increment;
+                    }
+                    return updatedVote;
+                }
+                return v;
+            });
             if (!newVotes.some(v => v.user_id === currentUser.id && v.message_id === messageId)) {
                  newVotes.push({ id: `temp_${Date.now()}`, user_id: currentUser.id, message_id: messageId, hot_votes: type === 'hot' ? 1 : 0, cold_votes: type === 'cold' ? 1 : 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
             }
@@ -3162,7 +3193,13 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
             updatedComments.push({ id: `c_${Date.now()}`, authorId: user.id, authorPseudonym: user.pseudonym, text: payload.text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 });
         } else {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
-            if (commentIndex > -1) updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+            if (commentIndex > -1) {
+                if(payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes += 1;
+                } else {
+                    updatedComments[commentIndex].cold_votes += 1;
+                }
+            }
         }
         
         const success = await updateContentComments('question_notebooks', commentingOnNotebook.id, updatedComments);
@@ -3230,9 +3267,7 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
                     <div className="mt-8">
                         <h3 className="text-xl font-semibold mb-4">Conquistas</h3>
                         <div className="flex flex-wrap gap-4">
-                            {/* FIX: Cast user.achievements to string[] to resolve type inference issues from database calls. */}
                             {Array.isArray(user.achievements) && user.achievements.length > 0 ? (
-                                // FIX: Error on line 2397 (likely pointing here). Use a double cast to handle `unknown[]` from database types and allow sorting.
                                 ((user.achievements as unknown as string[]).slice().sort().map((ach: string) => (
                                     <div key={ach} className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 text-sm font-semibold px-3 py-1 rounded-full">
                                         {ach}

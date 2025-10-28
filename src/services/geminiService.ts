@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
-import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer } from '../types';
+import { Question, UserContentInteraction } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -28,7 +28,7 @@ export const getSimpleChatResponse = async (history: { role: string, parts: Part
     });
 
     const response: GenerateContentResponse = await chat.sendMessage({ message: newMessage });
-    return response.text;
+    return response.text ?? "Desculpe, ocorreu um erro ao me comunicar com a IA.";
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     return "Desculpe, ocorreu um erro ao me comunicar com a IA.";
@@ -71,7 +71,7 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
             },
         });
 
-        return JSON.parse(response.text);
+        return JSON.parse(response.text!);
 
     } catch (error) {
         console.error("Error generating questions with Gemini API:", error);
@@ -176,7 +176,7 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        return JSON.parse(response.text);
+        return JSON.parse(response.text!);
     } catch (error) {
         console.error(`Error processing source content with Gemini API:`, error);
         return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
@@ -263,7 +263,7 @@ export const getPersonalizedStudyPlan = async (
             model: 'gemini-2.5-pro', // Using a more powerful model for better analysis
             contents: prompt,
         });
-        return response.text;
+        return response.text ?? "Desculpe, não consegui gerar seu plano de estudos.";
     } catch (error) {
         console.error("Error generating study plan:", error);
         return "Desculpe, não consegui gerar seu plano de estudos.";
@@ -302,8 +302,7 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
                 }
             }
         });
-        // Fix: Explicitly type the parsed JSON to ensure `relevantIds` is a string array.
-        const result = JSON.parse(response.text) as { relevantIds?: string[] };
+        const result = JSON.parse(response.text!) as { relevantIds?: string[] };
         return result.relevantIds || [];
     } catch(error) {
         console.error("Error filtering with AI:", error);
@@ -396,7 +395,7 @@ export const generateSpecificContent = async (
                 },
             },
         });
-        const result = JSON.parse(response.text);
+        const result = JSON.parse(response.text!);
         return result.generatedContent;
 
     } catch (error) {
@@ -420,7 +419,7 @@ export const generateNotebookName = async (questions: Question[]): Promise<strin
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
-        return response.text.trim();
+        return response.text?.trim() ?? `Caderno de ${new Date().toLocaleDateString()}`;
     } catch(error) {
         console.error("Error generating notebook name:", error);
         return `Caderno de ${new Date().toLocaleDateString()}`;
@@ -489,7 +488,7 @@ export const generateMoreContentFromSource = async (
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        return JSON.parse(response.text);
+        return JSON.parse(response.text!);
     } catch (error) {
         console.error("Error generating more content:", error);
         return { error: "Falha ao explorar a fonte para mais conteúdo." };
