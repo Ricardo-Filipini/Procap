@@ -26,6 +26,36 @@ interface MainContentProps {
   setProcessingTasks: React.Dispatch<React.SetStateAction<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>>;
 }
 
+const FONT_SIZE_CLASSES = ['text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl'];
+
+const FontSizeControl: React.FC<{
+    fontSize: number;
+    setFontSize: (setter: (s: number) => number) => void;
+    maxSize?: number;
+    className?: string;
+}> = ({ fontSize, setFontSize, maxSize = 4, className = '' }) => (
+    <div className={`flex items-center gap-2 ${className}`}>
+        <span className="text-sm font-semibold text-foreground-light dark:text-foreground-dark whitespace-nowrap">Tamanho do Texto:</span>
+        <button
+            onClick={() => setFontSize(s => Math.max(0, s - 1))}
+            disabled={fontSize === 0}
+            className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+            title="Diminuir"
+        >
+            <MinusIcon className="w-5 h-5" />
+        </button>
+        <button
+            onClick={() => setFontSize(s => Math.min(maxSize, s + 1))}
+            disabled={fontSize === maxSize}
+            className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
+            title="Aumentar"
+        >
+            <PlusIcon className="w-5 h-5" />
+        </button>
+    </div>
+);
+
+
 const Header: React.FC<{ title: string; theme: Theme; setTheme: (theme: Theme) => void; }> = ({ title, theme, setTheme }) => (
     <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-foreground-light dark:text-foreground-dark">{title}</h1>
@@ -123,7 +153,8 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
     };
 
     const handleProcessFiles = async (files: FileList, title: string) => {
-        for (const file of Array.from(files)) {
+        // FIX: Error on line 562. Iterate directly over FileList as it is iterable. This helps TypeScript correctly infer `file` as type `File`.
+        for (const file of files) {
             const taskId = `task_${file.name}_${Date.now()}`;
             setProcessingTasks(prev => [...prev, { id: taskId, name: file.name, message: 'Iniciando processamento...', status: 'processing' }]);
 
@@ -292,6 +323,19 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
         }
     };
 
+    const handleOpenSourceFile = (source: Source) => {
+        if (source.storage_path && source.storage_path.length > 0) {
+            const { data } = supabase!.storage.from('sources').getPublicUrl(source.storage_path[0]);
+            if (data.publicUrl) {
+                window.open(data.publicUrl, '_blank', 'noopener,noreferrer');
+            } else {
+                alert("Não foi possível obter o link do arquivo.");
+            }
+        } else {
+            alert("Nenhum arquivo associado a esta fonte foi encontrado.");
+        }
+    };
+
 
     const sortedSources = useMemo(() => {
         let items = [...appData.sources];
@@ -415,6 +459,9 @@ const SourcesView: React.FC<Pick<MainContentProps, 'appData' | 'setAppData' | 'c
                                 )}
                             </div>
                             <div className="flex-grow" />
+                            <button onClick={() => handleOpenSourceFile(source)} className="text-gray-500 hover:text-primary-light flex items-center gap-1">
+                                <DocumentTextIcon className="w-5 h-5"/> Abrir Fonte
+                            </button>
                             <button onClick={() => setCommentingOn(source)} className="text-gray-500 hover:text-primary-light">Comentários ({source.comments?.length || 0})</button>
                         </div>
                     </div>
@@ -1568,8 +1615,7 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
     const contentType: ContentType = 'summary';
-    const [fontSize, setFontSize] = useState(2); // 0: sm, 1: base, 2: lg, 3: xl, 4: 2xl
-    const fontSizeClasses = ['text-sm', 'text-base', 'text-lg', 'text-xl', 'text-2xl'];
+    const [fontSize, setFontSize] = useState(2);
 
     useEffect(() => {
         if (filterTerm) {
@@ -1637,7 +1683,7 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{summary.source?.topic}</p>
                 {expanded === summary.id && (
                     <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark">
-                        {renderSummaryWithTooltips(summary, fontSizeClasses[fontSize])}
+                        {renderSummaryWithTooltips(summary, FONT_SIZE_CLASSES[fontSize])}
                     </div>
                 )}
             </div>
@@ -1665,25 +1711,7 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
             />
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: handleOpenGenerateModal, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             
-            <div className="flex justify-end items-center gap-2 mb-4">
-                <span className="text-sm font-semibold text-foreground-light dark:text-foreground-dark">Tamanho do Texto:</span>
-                <button
-                    onClick={() => setFontSize(s => Math.max(0, s - 1))}
-                    disabled={fontSize === 0}
-                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
-                    title="Diminuir"
-                >
-                    <MinusIcon className="w-5 h-5" />
-                </button>
-                <button
-                    onClick={() => setFontSize(s => Math.min(fontSizeClasses.length - 1, s + 1))}
-                    disabled={fontSize === fontSizeClasses.length - 1}
-                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50"
-                    title="Aumentar"
-                >
-                    <PlusIcon className="w-5 h-5" />
-                </button>
-            </div>
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
 
             <div className="space-y-4">
                 {Array.isArray(processedItems) 
@@ -1705,6 +1733,7 @@ const SummariesView: React.FC<{ allItems: (Summary & { user_id: string, created_
 const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, created_at: string})[]; appData: AppData; setAppData: React.Dispatch<React.SetStateAction<AppData>>; currentUser: User; updateUser: (user: User) => void; filterTerm: string | null; clearFilter: () => void; }> = ({ allItems, appData, setAppData, currentUser, updateUser, filterTerm, clearFilter }) => {
     const [flipped, setFlipped] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Flashcard | null>(null);
+    const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'flashcard';
 
     useEffect(() => {
@@ -1767,12 +1796,12 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
                         <div className="absolute w-full h-full [backface-visibility:hidden] flex flex-col justify-between p-6 bg-card-light dark:bg-card-dark rounded-t-lg shadow-md border border-b-0 border-border-light dark:border-border-dark cursor-pointer">
                             <div>
                                 <p className="text-xs text-gray-500">Criado por {authorName}</p>
-                                <p className="text-lg md:text-xl font-semibold text-center mt-4 flex-grow flex items-center justify-center">{card.front}</p>
+                                <p className={`font-semibold text-center mt-4 flex-grow flex items-center justify-center ${FONT_SIZE_CLASSES[fontSize]}`}>{card.front}</p>
                             </div>
                             <div className="text-center text-xs text-gray-400">Clique para virar</div>
                         </div>
                         <div className="absolute w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col justify-center p-6 bg-primary-light dark:bg-primary-dark text-white rounded-t-lg shadow-md cursor-pointer">
-                            <p className="text-lg md:text-xl text-center">{card.back}</p>
+                            <p className={`text-center ${FONT_SIZE_CLASSES[fontSize]}`}>{card.back}</p>
                         </div>
                     </div>
                     <div className="bg-background-light dark:bg-background-dark p-2 rounded-b-lg border border-t-0 border-border-light dark:border-border-dark">
@@ -1802,7 +1831,7 @@ const FlashcardsView: React.FC<{ allItems: (Flashcard & { user_id: string, creat
                 onGenerate={(ids, p) => handleGenerateNewContent(setAppData, appData, setIsGenerating, () => setGenerateModalOpen(false), 'flashcards', ids, p)}
             />
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: handleOpenGenerateModal, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
-            
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="space-y-6">
                 {Array.isArray(processedItems) 
                     ? renderItems(processedItems)
@@ -1957,9 +1986,8 @@ const NotebookDetailView: React.FC<{
 
     const questions = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: Explicitly cast `notebook.question_ids` to `string[]` as its type from the database is not guaranteed.
-        // This resolves a type error where `question_ids` was inferred as `unknown[]`.
-        const idSet = new Set((notebook.question_ids as string[]) || []);
+        // FIX: Error on line 2071. Use a double cast to handle `unknown[]` from database types.
+        const idSet = new Set((notebook.question_ids as unknown as string[]) || []);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
 
@@ -1970,6 +1998,7 @@ const NotebookDetailView: React.FC<{
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
     const [isQuestionStatsModalOpen, setIsQuestionStatsModalOpen] = useState(false);
     const [commentingOnQuestion, setCommentingOnQuestion] = useState<Question | null>(null);
+    const [fontSize, setFontSize] = useState(2);
 
     const currentQuestion = questions[currentQuestionIndex];
     
@@ -2165,13 +2194,14 @@ const NotebookDetailView: React.FC<{
                 <span className="font-semibold">{currentQuestionIndex + 1} / {questions.length}</span>
             </div>
             
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
                 <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}></div>
             </div>
 
-            <h2 className="text-xl font-semibold mb-4">{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
+            <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
 
-            <div className="space-y-3">
+            <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
                 {(currentQuestion?.options || []).map((option, index) => {
                     const isSelected = selectedOption === option;
                     const isWrong = wrongAnswers.has(option);
@@ -2434,6 +2464,7 @@ const QuestionsView: React.FC<{ allItems: (Question & { user_id: string, created
 
 const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_at: string})[]; appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>; currentUser: User; updateUser: (user: User) => void; }> = ({ allItems, appData, setAppData, currentUser, updateUser }) => {
     const [commentingOn, setCommentingOn] = useState<MindMap | null>(null);
+    const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'mind_map';
 
     const {
@@ -2468,7 +2499,7 @@ const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_a
          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {items.map(map => (
                 <div key={map.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                    <h3 className="text-xl font-bold mb-2">{map.title}</h3>
+                    <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{map.title}</h3>
                      <p className="text-xs text-gray-500 mb-4">Fonte: {map.source?.title}</p>
                     <img src={map.imageUrl} alt={map.title} className="w-full h-auto rounded-md border border-border-light dark:border-border-dark"/>
                     <ContentActions
@@ -2487,7 +2518,7 @@ const MindMapsView: React.FC<{ allItems: (MindMap & { user_id: string, created_a
         <>
             <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} onAddComment={(text) => handleCommentAction('add', {text})} onVoteComment={(commentId, voteType) => handleCommentAction('vote', {commentId, voteType})} contentTitle={commentingOn?.title || ''}/>
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: undefined, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
-            
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4"/>
              <div className="space-y-4">
                 {Array.isArray(processedItems) 
                     ? renderItems(processedItems)
@@ -2610,6 +2641,7 @@ const AddAudioModal: React.FC<{
 const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string, created_at: string})[], appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>, currentUser: User, updateUser: (user: User) => void }> = ({ allItems, appData, setAppData, currentUser, updateUser }) => {
     const [commentingOn, setCommentingOn] = useState<(AudioSummary & { user_id: string, created_at: string}) | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'audio_summary';
 
     const {
@@ -2648,7 +2680,7 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
         
         return (
         <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
-            <h3 className="text-xl font-bold mb-2">{audio.title}</h3>
+            <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{audio.title}</h3>
             <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
             {audio.audioUrl.toLowerCase().endsWith('.mp4') ? (
                 <video controls className="w-full rounded-md max-h-72">
@@ -2675,12 +2707,15 @@ const AudioSummariesView: React.FC<{ allItems: (AudioSummary & { user_id: string
         <>
             <AddAudioModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} setAppData={setAppData} currentUser={currentUser} />
             <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} onAddComment={(text) => handleCommentAction('add', {text})} onVoteComment={(commentId, voteType) => handleCommentAction('vote', {commentId, voteType})} contentTitle={commentingOn?.title || ''}/>
-            <div className="flex justify-end mb-4">
-                <button onClick={() => setIsAddModalOpen(true)} className="px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600 flex items-center gap-2">
-                    <PlusIcon className="w-5 h-5" /> Adicionar Áudio
-                </button>
+            <div className="flex justify-between items-center mb-4">
+                <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: undefined, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
+                 <div className="flex flex-col gap-4">
+                    <button onClick={() => setIsAddModalOpen(true)} className="px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600 flex items-center gap-2">
+                        <PlusIcon className="w-5 h-5" /> Adicionar Áudio
+                    </button>
+                    <FontSizeControl fontSize={fontSize} setFontSize={setFontSize}/>
+                </div>
             </div>
-            <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: undefined, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             
             <div className="space-y-4">
                 {Array.isArray(processedItems) 
@@ -2736,6 +2771,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     const [isLoading, setIsLoading] = useState(false);
     const [sortOrder, setSortOrder] = useState<'time' | 'temp'>('time');
     const [activeVote, setActiveVote] = useState<{ messageId: string; type: 'hot' | 'cold' } | null>(null);
+    const [fontSize, setFontSize] = useState(2);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
 
@@ -2930,13 +2966,16 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
          <div className="flex flex-col h-full bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark">
             <div className="flex justify-between items-center p-4 border-b border-border-light dark:border-border-dark">
                 <h3 className="text-2xl font-bold">Chat Geral</h3>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => setSortOrder('time')} className={`p-2 rounded-full ${sortOrder === 'time' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                        <span className="text-2xl">🕐</span>
-                    </button>
-                    <button onClick={() => setSortOrder('temp')} className={`p-2 rounded-full ${sortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                        <span className="text-2xl">🌡️</span>
-                    </button>
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => setSortOrder('time')} className={`p-2 rounded-full ${sortOrder === 'time' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                            <span className="text-2xl">🕐</span>
+                        </button>
+                        <button onClick={() => setSortOrder('temp')} className={`p-2 rounded-full ${sortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                            <span className="text-2xl">🌡️</span>
+                        </button>
+                    </div>
+                     <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} />
                 </div>
             </div>
             <div className="flex-1 p-4 overflow-y-auto">
@@ -2955,7 +2994,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
                                     msg.author === 'IA' ? 'bg-secondary-light/20 dark:bg-secondary-dark/30 rounded-bl-none' : 
                                     'bg-gray-200 dark:bg-gray-700 rounded-bl-none'
                                 }`}>
-                                    <p className="whitespace-pre-wrap">{parseAndRenderMessage(msg.text, onNavigate)}</p>
+                                    <p className={`whitespace-pre-wrap ${FONT_SIZE_CLASSES[fontSize]}`}>{parseAndRenderMessage(msg.text, onNavigate)}</p>
                                 </div>
                                  <div className="flex items-center gap-4 relative mt-2">
                                     <button onClick={() => setActiveVote({ messageId: msg.id, type: 'hot' })} className="flex items-center gap-1 text-base">
@@ -3013,6 +3052,7 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
     const [studyPlan, setStudyPlan] = useState("");
     const [loadingPlan, setLoadingPlan] = useState(false);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
+    const [fontSize, setFontSize] = useState(2);
     
     const [notebookSort, setNotebookSort] = useState<SortOption>('time');
 
@@ -3134,130 +3174,134 @@ const ProfileView: React.FC<{ user: User, appData: AppData, setAppData: React.Di
     };
 
     return (
-        <div className="space-y-8">
-            <CommentsModal 
-                isOpen={!!commentingOnNotebook}
-                onClose={() => setCommentingOnNotebook(null)}
-                comments={commentingOnNotebook?.comments || []}
-                onAddComment={(text) => handleNotebookCommentAction('add', { text })}
-                onVoteComment={(id, type) => handleNotebookCommentAction('vote', { commentId: id, voteType: type })}
-                contentTitle={commentingOnNotebook?.name || ''}
-            />
+        <div className={FONT_SIZE_CLASSES[fontSize]}>
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
+            <div className="space-y-8">
+                <CommentsModal 
+                    isOpen={!!commentingOnNotebook}
+                    onClose={() => setCommentingOnNotebook(null)}
+                    comments={commentingOnNotebook?.comments || []}
+                    onAddComment={(text) => handleNotebookCommentAction('add', { text })}
+                    onVoteComment={(id, type) => handleNotebookCommentAction('vote', { commentId: id, voteType: type })}
+                    contentTitle={commentingOnNotebook?.name || ''}
+                />
 
-            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold">Plano de Estudos Personalizado (IA)</h3>
-                    <button onClick={handleGeneratePlan} disabled={loadingPlan} className="bg-secondary-light hover:bg-emerald-600 dark:bg-secondary-dark dark:hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-md transition duration-300 disabled:opacity-50 flex items-center gap-2">
-                       <SparklesIcon className="w-5 h-5"/> {loadingPlan ? 'Gerando...' : 'Gerar/Atualizar Plano'}
-                    </button>
-                </div>
-                {studyPlan ? parseAndRenderMessage(studyPlan) : <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>}
-            </div>
-
-            <div className="bg-card-light dark:bg-card-dark p-8 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <div className="flex items-center space-x-6 mb-6">
-                    <div className="w-24 h-24 bg-primary-light/20 rounded-full flex items-center justify-center">
-                        <UserCircleIcon className="w-20 h-20 text-primary-light dark:text-primary-dark" />
-                    </div>
-                    <div>
-                        <h2 className="text-3xl font-bold">{user.pseudonym}</h2>
-                        <p className="text-lg text-gray-600 dark:text-gray-300">Continue de onde parou e avance em seus estudos.</p>
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                        <p className="text-lg font-semibold">Nível</p>
-                        <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.level}</p>
-                    </div>
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                        <p className="text-lg font-semibold">XP</p>
-                        <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.xp}</p>
-                    </div>
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                        <p className="text-lg font-semibold">Conquistas</p>
-                        <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.achievements.length}</p>
-                    </div>
-                </div>
-                 <div className="mt-8">
-                    <h3 className="text-xl font-semibold mb-4">Progresso para o próximo Nível</h3>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 mb-2">
-                        <div className="bg-secondary-light dark:bg-secondary-dark h-4 rounded-full" style={{ width: `${(user.xp % 100)}%` }}></div>
-                    </div>
-                    <p className="text-right text-sm text-gray-500">{user.xp % 100} / 100 XP</p>
-                </div>
-                <div className="mt-8">
-                    <h3 className="text-xl font-semibold mb-4">Conquistas</h3>
-                    <div className="flex flex-wrap gap-4">
-                        {/* FIX: Cast user.achievements to string[] to resolve type inference issues from database calls. */}
-                        {Array.isArray(user.achievements) && user.achievements.length > 0 ? (
-                            (user.achievements as string[]).slice().sort().map((ach: string) => (
-                                <div key={ach} className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 text-sm font-semibold px-3 py-1 rounded-full">
-                                    {ach}
-                                </div>
-                            ))
-                        ) : (
-                            <p className="text-gray-500">Nenhuma conquista desbloqueada ainda.</p>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                    <h3 className="text-xl font-bold mb-4">Desempenho Geral</h3>
-                    <p className="text-center text-lg mb-4">{questionsAnswered} questões respondidas com <span className="font-bold">{overallAccuracy.toFixed(1)}%</span> de acerto.</p>
-                    <ResponsiveContainer width="100%" height={200}>
-                        <PieChart>
-                            <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                            </Pie>
-                            <Tooltip />
-                            <Legend />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold">Plano de Estudos Personalizado (IA)</h3>
+                        <button onClick={handleGeneratePlan} disabled={loadingPlan} className="bg-secondary-light hover:bg-emerald-600 dark:bg-secondary-dark dark:hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-md transition duration-300 disabled:opacity-50 flex items-center gap-2">
+                        <SparklesIcon className="w-5 h-5"/> {loadingPlan ? 'Gerando...' : 'Gerar/Atualizar Plano'}
+                        </button>
+                    </div>
+                    {studyPlan ? parseAndRenderMessage(studyPlan) : <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>}
                 </div>
-                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                    <h3 className="text-xl font-bold mb-4">Desempenho por Tópico (%)</h3>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={barData} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis type="number" domain={[0, 100]} />
-                            <YAxis dataKey="name" type="category" width={80} />
-                            <Tooltip />
-                            <Bar dataKey="Acerto" fill="#8884d8" />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
 
-             <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-bold">Seus Cadernos de Questões Criados</h3>
-                     <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold">Ordenar por:</span>
-                        <button onClick={() => setNotebookSort('time')} title="Data" className={`p-1 rounded-md ${notebookSort === 'time' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🕐</span></button>
-                        <button onClick={() => setNotebookSort('temp')} title="Temperatura" className={`p-1 rounded-md ${notebookSort === 'temp' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🌡️</span></button>
-                     </div>
-                </div>
-                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                    {userNotebooks.length > 0 ? userNotebooks.map(notebook => (
-                        <div key={notebook.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
-                            <div>
-                                <h4 className="font-semibold">{notebook.name}</h4>
-                                <p className="text-xs text-gray-500">{notebook.question_ids.length} questões - {new Date(notebook.created_at).toLocaleDateString()}</p>
-                            </div>
-                            <ContentActions
-                                item={notebook}
-                                contentType={'question_notebook'}
-                                currentUser={user}
-                                interactions={appData.userNotebookInteractions.filter(i => i.user_id === user.id)}
-                                onVote={handleNotebookVote}
-                                onToggleRead={(id, state) => handleNotebookInteractionUpdate(id, { is_read: !state })}
-                                onToggleFavorite={(id, state) => handleNotebookInteractionUpdate(id, { is_favorite: !state })}
-                                onComment={() => setCommentingOnNotebook(notebook)}
-                            />
+                <div className="bg-card-light dark:bg-card-dark p-8 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                    <div className="flex items-center space-x-6 mb-6">
+                        <div className="w-24 h-24 bg-primary-light/20 rounded-full flex items-center justify-center">
+                            <UserCircleIcon className="w-20 h-20 text-primary-light dark:text-primary-dark" />
                         </div>
-                    )) : <p className="text-gray-500">Você ainda não criou nenhum caderno de questões.</p>}
+                        <div>
+                            <h2 className="text-3xl font-bold">{user.pseudonym}</h2>
+                            <p className="text-lg text-gray-600 dark:text-gray-300">Continue de onde parou e avance em seus estudos.</p>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                            <p className="text-lg font-semibold">Nível</p>
+                            <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.level}</p>
+                        </div>
+                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                            <p className="text-lg font-semibold">XP</p>
+                            <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.xp}</p>
+                        </div>
+                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                            <p className="text-lg font-semibold">Conquistas</p>
+                            <p className="text-3xl font-bold text-primary-light dark:text-primary-dark">{user.achievements.length}</p>
+                        </div>
+                    </div>
+                    <div className="mt-8">
+                        <h3 className="text-xl font-semibold mb-4">Progresso para o próximo Nível</h3>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 mb-2">
+                            <div className="bg-secondary-light dark:bg-secondary-dark h-4 rounded-full" style={{ width: `${(user.xp % 100)}%` }}></div>
+                        </div>
+                        <p className="text-right text-sm text-gray-500">{user.xp % 100} / 100 XP</p>
+                    </div>
+                    <div className="mt-8">
+                        <h3 className="text-xl font-semibold mb-4">Conquistas</h3>
+                        <div className="flex flex-wrap gap-4">
+                            {/* FIX: Cast user.achievements to string[] to resolve type inference issues from database calls. */}
+                            {Array.isArray(user.achievements) && user.achievements.length > 0 ? (
+                                // FIX: Error on line 2397 (likely pointing here). Use a double cast to handle `unknown[]` from database types and allow sorting.
+                                ((user.achievements as unknown as string[]).slice().sort().map((ach: string) => (
+                                    <div key={ach} className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 text-sm font-semibold px-3 py-1 rounded-full">
+                                        {ach}
+                                    </div>
+                                )))
+                            ) : (
+                                <p className="text-gray-500">Nenhuma conquista desbloqueada ainda.</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                        <h3 className="text-xl font-bold mb-4">Desempenho Geral</h3>
+                        <p className="text-center text-lg mb-4">{questionsAnswered} questões respondidas com <span className="font-bold">{overallAccuracy.toFixed(1)}%</span> de acerto.</p>
+                        <ResponsiveContainer width="100%" height={200}>
+                            <PieChart>
+                                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                    <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                        <h3 className="text-xl font-bold mb-4">Desempenho por Tópico (%)</h3>
+                        <ResponsiveContainer width="100%" height={250}>
+                            <BarChart data={barData} layout="vertical" margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis type="number" domain={[0, 100]} />
+                                <YAxis dataKey="name" type="category" width={80} />
+                                <Tooltip />
+                                <Bar dataKey="Acerto" fill="#8884d8" />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+
+                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-bold">Seus Cadernos de Questões Criados</h3>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold">Ordenar por:</span>
+                            <button onClick={() => setNotebookSort('time')} title="Data" className={`p-1 rounded-md ${notebookSort === 'time' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🕐</span></button>
+                            <button onClick={() => setNotebookSort('temp')} title="Temperatura" className={`p-1 rounded-md ${notebookSort === 'temp' ? 'bg-primary-light/20' : ''}`}><span className="text-xl">🌡️</span></button>
+                        </div>
+                    </div>
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {userNotebooks.length > 0 ? userNotebooks.map(notebook => (
+                            <div key={notebook.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
+                                <div>
+                                    <h4 className="font-semibold">{notebook.name}</h4>
+                                    <p className="text-xs text-gray-500">{notebook.question_ids.length} questões - {new Date(notebook.created_at).toLocaleDateString()}</p>
+                                </div>
+                                <ContentActions
+                                    item={notebook}
+                                    contentType={'question_notebook'}
+                                    currentUser={user}
+                                    interactions={appData.userNotebookInteractions.filter(i => i.user_id === user.id)}
+                                    onVote={handleNotebookVote}
+                                    onToggleRead={(id, state) => handleNotebookInteractionUpdate(id, { is_read: !state })}
+                                    onToggleFavorite={(id, state) => handleNotebookInteractionUpdate(id, { is_favorite: !state })}
+                                    onComment={() => setCommentingOnNotebook(notebook)}
+                                />
+                            </div>
+                        )) : <p className="text-gray-500">Você ainda não criou nenhum caderno de questões.</p>}
+                    </div>
                 </div>
             </div>
         </div>
