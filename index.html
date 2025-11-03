@@ -2,28 +2,135 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      The meta tags below are a good first line of defense against caching,
+      but are not always respected by all browsers or proxies.
+    -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <!-- 
+      ROBUST CACHE BUSTING:
+      The version meta tag and the script below work together to create a more
+      aggressive and reliable cache-busting system.
+    -->
+    <meta name="app-version" content="20240823.1" />
+    <script>
+      (async () => {
+        try {
+          const currentVersionMeta = document.querySelector('meta[name="app-version"]');
+          if (!currentVersionMeta) {
+            console.warn('App version meta tag not found. Skipping cache check.');
+            return;
+          }
+          const currentVersion = currentVersionMeta.getAttribute('content');
+
+          // Fetch the latest index.html directly from the server, bypassing the cache.
+          const response = await fetch('/index.html?cache_bust=' + Date.now(), {
+            cache: 'no-store', // Be explicit with the fetch request
+            headers: {
+              'Pragma': 'no-cache',
+              'Cache-Control': 'no-cache'
+            }
+          });
+
+          if (!response.ok) return;
+
+          const serverHtml = await response.text();
+          
+          // Use a simple regex to extract the version from the server's HTML text.
+          const versionMatch = serverHtml.match(/<meta name="app-version" content="([^"]+)">/);
+          const serverVersion = versionMatch ? versionMatch[1] : null;
+
+          // If the server has a different version, force a hard reload.
+          if (serverVersion && currentVersion && serverVersion !== currentVersion) {
+            console.log(`[Cache Bust] Stale version detected. Client: ${currentVersion}, Server: ${serverVersion}. Forcing reload.`);
+            window.location.reload(true); // The 'true' argument forces a hard reload from the server.
+          }
+        } catch (error) {
+          console.error('[Cache Bust] Failed to check for new version:', error);
+          // If the check fails, we let the app attempt to load normally.
+        }
+      })();
+    </script>
+
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Procap: Plataforma de Estudos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'primary': {
+                light: '#4f46e5',
+                dark: '#6366f1',
+              },
+              'secondary': {
+                light: '#10b981',
+                dark: '#34d399',
+              },
+              'background': {
+                light: '#f9fafb',
+                dark: '#111827',
+              },
+              'foreground': {
+                light: '#1f2937',
+                dark: '#f9fafb',
+              },
+              'card': {
+                light: '#ffffff',
+                dark: '#1f2937',
+              },
+              'border': {
+                  light: '#e5e7eb',
+                  dark: '#374151',
+              }
+            },
+            keyframes: {
+              flip: {
+                '0%': { transform: 'rotateY(0deg)' },
+                '100%': { transform: 'rotateY(180deg)' },
+              },
+              flip_back: {
+                '0%': { transform: 'rotateY(180deg)' },
+                '100%': { transform: 'rotateY(0deg)' },
+              },
+              'fade-in-up': {
+                  '0%': { opacity: '0', transform: 'translateY(20px)' },
+                  '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
+            animation: {
+              flip: 'flip 0.6s forwards',
+              'flip-back': 'flip_back 0.6s forwards',
+              'fade-in-up': 'fade-in-up 0.5s ease-out forwards',
+            },
+          }
+        }
+      }
+    </script>
   <script type="importmap">
 {
   "imports": {
+    "recharts": "https://aistudiocdn.com/recharts@^3.2.1",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.3.0",
-    "vite": "https://aistudiocdn.com/vite@^7.1.12",
-    "pdfjs-dist/": "https://aistudiocdn.com/pdfjs-dist@^5.4.296/",
-    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.76.1",
-    "mammoth": "https://aistudiocdn.com/mammoth@^1.11.0"
+    "pdfjs-dist/build/pdf.mjs": "https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.mjs",
+    "pdfjs-dist/": "https://aistudiocdn.com/pdfjs-dist@^5.4.149/",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
+    "mammoth": "https://cdn.jsdelivr.net/npm/mammoth@1.7.1/+esm"
   }
 }
 </script>
 </head>
   <body class="bg-background-light dark:bg-background-dark">
     <div id="root"></div>
-    <script type="module" src="/src/index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

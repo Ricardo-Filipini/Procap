@@ -2,7 +2,7 @@ import React from 'react';
 
 export type Theme = 'light' | 'dark';
 
-export type ContentType = 'summary' | 'flashcard' | 'question' | 'mind_map' | 'question_notebook' | 'audio_summary';
+export type ContentType = 'summary' | 'flashcard' | 'question' | 'mind_map' | 'question_notebook' | 'audio_summary' | 'case_study' | 'cronograma';
 
 export interface View {
   name: string;
@@ -197,17 +197,77 @@ export interface UserContentInteraction {
     cold_votes: number;
 }
 
+export interface DecisionOption {
+    id: string;
+    text: string;
+    predicted_outcome: string;
+}
+
+export interface DecisionPoint {
+    id: string;
+    context: string;
+    options: DecisionOption[];
+    actual_bcb_action: string;
+    bcb_action_outcome: string;
+}
+
+export interface CaseStudy {
+    id: string;
+    user_id: string;
+    title: string;
+    summary: string;
+    full_case_text: string;
+    source_file_path?: string;
+    correlated_materias: string[];
+    key_points: string[];
+    decision_points: DecisionPoint[];
+    created_at: string;
+    hot_votes: number;
+    cold_votes: number;
+    comments: Comment[];
+}
+
+export interface UserCaseStudyInteraction {
+    id: string;
+    user_id: string;
+    case_study_id: string;
+    current_decision_point_index: number;
+    choices: {
+        decision_point_id: string;
+        chosen_option_id: string;
+    }[];
+    xp_earned: number;
+    completed_at: string | null;
+}
+
+export interface ScheduleEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:mm
+  endTime: string; // HH:mm
+  title: string;
+  professor?: string;
+  type: 'aula' | 'prova' | 'seminario' | 'orientacao';
+  details?: string;
+  color: string;
+  hot_votes: number;
+  cold_votes: number;
+  comments: Comment[];
+}
 
 export interface AppData {
   users: User[];
   sources: Source[];
   chatMessages: ChatMessage[];
   questionNotebooks: QuestionNotebook[];
+  caseStudies: CaseStudy[];
+  scheduleEvents: ScheduleEvent[];
   userMessageVotes: UserMessageVote[];
   userSourceVotes: UserSourceVote[];
   userContentInteractions: UserContentInteraction[];
   userNotebookInteractions: UserNotebookInteraction[];
   userQuestionAnswers: UserQuestionAnswer[];
+  userCaseStudyInteractions: UserCaseStudyInteraction[];
 }
 
 export interface StarRating {

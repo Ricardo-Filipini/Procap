@@ -1,5 +1,7 @@
+
+
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
-import { Question, UserContentInteraction } from '../types';
+import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -28,7 +30,7 @@ export const getSimpleChatResponse = async (history: { role: string, parts: Part
     });
 
     const response: GenerateContentResponse = await chat.sendMessage({ message: newMessage });
-    return response.text ?? "Desculpe, ocorreu um erro ao me comunicar com a IA.";
+    return response.text;
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     return "Desculpe, ocorreu um erro ao me comunicar com a IA.";
@@ -41,7 +43,7 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
         return { error: "A funcionalidade da IA está desabilitada. Configure a API Key." };
     }
     try {
-        const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 4 opções, uma resposta correta, uma breve explicação e duas dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta. Siga estritamente o schema JSON fornecido.`;
+        const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 5 opções, uma resposta correta, uma breve explicação e duas dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta. Siga estritamente o schema JSON fornecido.`;
 
         const response: GenerateContentResponse = await getModel().generateContent({
             model: "gemini-2.5-flash",
@@ -71,7 +73,12 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
             },
         });
 
-        return JSON.parse(response.text!);
+        // Fix: Ensure response.text exists before parsing.
+        if (response.text) {
+          return JSON.parse(response.text);
+        }
+        return { error: "Não foi possível gerar as questões." };
+
 
     } catch (error) {
         console.error("Error generating questions with Gemini API:", error);
@@ -79,19 +86,21 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
     }
 };
 
-export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[]): Promise<any> => {
+export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[], userPrompt?: string): Promise<any> => {
     if (!API_KEY) return { error: "A funcionalidade da IA está desabilitada." };
 
     const prompt = `
-    A partir do texto-fonte fornecido, atue como um especialista em material de estudo para concursos.
-    1. Analise o conteúdo e gere um título conciso e um resumo curto (2-3 frases) para o material.
-    2. Categorize o conteúdo. Identifique a matéria principal e o tópico específico. Se possível, use uma das matérias/tópicos existentes: ${JSON.stringify(existingTopics)}. Se não corresponder, crie uma nova categoria apropriada.
-    3. Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
-        - Resumos detalhados (summaries): Gere resumos com uma extensão média, aprofundando os principais conceitos de forma didática. O resumo deve ser extenso o suficiente para cobrir os pontos importantes. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a didática e a clareza do conteúdo do resumo.
-        - Flashcards: SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível.
-        - Questões (questions): SEJA EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. A quantidade é um fator crítico. Crie quantas questões relevantes conseguir. Cada questão deve ter 4 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta.
-    4. Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça um título curto e descritivo (máximo 5 palavras) e uma frase-prompt para gerar a imagem.
-    5. Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
+    A partir do texto-fonte fornecido, atue como um especialista em material de estudo para concursos, realizando uma análise profunda e detalhada do conteúdo.
+    ${userPrompt ? `O usuário forneceu um foco específico para a geração de conteúdo: "${userPrompt}". Dê prioridade a este tópico.` : ''}
+    
+    1.  **Análise Profunda:** Pense criticamente sobre o texto. Vá além da extração superficial e identifique os conceitos centrais, suas interconexões e as implicações práticas.
+    2.  **Categorização:** Analise o conteúdo e gere um título conciso e um resumo curto (2-3 frases) para o material. Identifique a matéria principal e o tópico específico. Se possível, use uma das matérias/tópicos existentes: ${JSON.stringify(existingTopics)}. Se não corresponder, crie uma nova categoria apropriada.
+    3.  **Criação de Conteúdo:** Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
+        - **Resumos (summaries):** Gere resumos com uma extensão média, aprofundando os principais conceitos de forma didática. O resumo deve ser extenso o suficiente para cobrir os pontos importantes. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a didática e a clareza do conteúdo do resumo.
+        - **Flashcards:** SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível. A quantidade é um fator crítico.
+        - **Questões (questions):** SEJA EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. Cada questão deve ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis que ajudem no raciocínio, mas NUNCA entreguem a resposta.
+    4.  **Mapas Mentais:** Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça um título curto e descritivo (máximo 5 palavras) e uma frase-prompt para gerar a imagem.
+    5.  **Formato:** Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
 
     Texto-fonte para análise:
     ---
@@ -176,7 +185,11 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        return JSON.parse(response.text!);
+        // Fix: Ensure response.text exists before parsing.
+        if (response.text) {
+          return JSON.parse(response.text);
+        }
+        return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
     } catch (error) {
         console.error(`Error processing source content with Gemini API:`, error);
         return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
@@ -263,7 +276,7 @@ export const getPersonalizedStudyPlan = async (
             model: 'gemini-2.5-pro', // Using a more powerful model for better analysis
             contents: prompt,
         });
-        return response.text ?? "Desculpe, não consegui gerar seu plano de estudos.";
+        return response.text;
     } catch (error) {
         console.error("Error generating study plan:", error);
         return "Desculpe, não consegui gerar seu plano de estudos.";
@@ -302,7 +315,9 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
                 }
             }
         });
-        const result = JSON.parse(response.text!) as { relevantIds?: string[] };
+        // Fix: Explicitly type the parsed JSON to ensure `relevantIds` is a string array.
+        if (!response.text) return [];
+        const result = JSON.parse(response.text) as { relevantIds?: string[] };
         return result.relevantIds || [];
     } catch(error) {
         console.error("Error filtering with AI:", error);
@@ -358,7 +373,7 @@ export const generateSpecificContent = async (
             }
         },
         questions: {
-            instruction: `Gere o máximo de questões de múltipla escolha possível sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Cada questão deve ter 4 opções, resposta correta, explicação e duas dicas sutis que ajudem no raciocínio.`,
+            instruction: `Gere o máximo de questões de múltipla escolha possível sobre o tópico "${prompt}" a partir do texto-fonte fornecido. Cada questão deve ter 5 opções, resposta correta, explicação e duas dicas sutis que ajudem no raciocínio.`,
             schema: {
                 type: Type.ARRAY,
                 items: {
@@ -395,7 +410,9 @@ export const generateSpecificContent = async (
                 },
             },
         });
-        const result = JSON.parse(response.text!);
+        // Fix: Ensure response.text exists before parsing.
+        if (!response.text) return { error: `Falha ao gerar ${type}.` };
+        const result = JSON.parse(response.text);
         return result.generatedContent;
 
     } catch (error) {
@@ -419,7 +436,7 @@ export const generateNotebookName = async (questions: Question[]): Promise<strin
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
-        return response.text?.trim() ?? `Caderno de ${new Date().toLocaleDateString()}`;
+        return response.text.trim();
     } catch(error) {
         console.error("Error generating notebook name:", error);
         return `Caderno de ${new Date().toLocaleDateString()}`;
@@ -434,30 +451,32 @@ export const generateMoreContentFromSource = async (
     if (!API_KEY) return { error: "API Key not configured." };
 
     const prompt = `
-    Você é um especialista em material de estudo. Sua tarefa é expandir o conteúdo de uma fonte de estudo existente.
+    Você é um tutor especialista e criador de conteúdo para concursos. Sua tarefa crítica é expandir os materiais de estudo de uma fonte existente, gerando conteúdo **novo e único**. Você deve evitar duplicar qualquer coisa que já exista.
 
     **Contexto:**
-    1.  **Fonte Original:** O texto-fonte principal para sua análise é fornecido abaixo.
-    2.  **Conteúdo Já Extraído:** Um JSON do conteúdo que JÁ FOI EXTRAÍDO desta fonte é fornecido para evitar duplicatas.
-    3.  **Tópico do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
+    1.  **Texto-Fonte:** O texto original para ser analisado.
+    2.  **Conteúdo Existente:** Um JSON de todo o conteúdo previamente extraído desta fonte. Você DEVE verificar isso meticulosamente para evitar qualquer repetição.
+    3.  **Foco do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
 
-    **Sua Tarefa:**
-    1.  **Análise Profunda:** Releia o texto-fonte original.
-    2.  **Geração de Conteúdo Inédito:** Gere APENAS conteúdo NOVO E ÚNICO que NÃO ESTÁ PRESENTE no JSON de "Conteúdo Existente".
-    3.  **Expansão com Pesquisa (Opcional):** Se o texto-fonte for limitado, você PODE usar seu conhecimento e ferramentas de pesquisa para encontrar informações relacionadas e criar material de estudo adicional, sempre mantendo o foco no tópico da fonte original e no prompt do usuário, se houver.
-    4.  **Rigor Anti-Duplicatas:** Seja extremamente rigoroso para não repetir informações já existentes. Se nenhum conteúdo novo e relevante for encontrado, retorne arrays vazios.
+    **Sua Missão - Gerar Conteúdo NOVO:**
+    1.  **Análise Profunda:** Realize uma análise profunda e completa do Texto-Fonte. Pense como um especialista no assunto. Vá além da simples correspondência de palavras-chave e entenda os conceitos, relações e implicações subjacentes.
+    2.  **Instrução Especial para Provas:** Se o Texto-Fonte for estruturado como uma prova ou uma lista de questões, seu objetivo principal é **extrair e formatar essas questões** no esquema JSON necessário. Neste caso, não crie novas questões do zero; concentre-se em capturar com precisão o que já está lá.
+    3.  **Gerar Conteúdo Inédito e Aprofundado:** Para texto padrão, encontre conceitos, detalhes ou nuances não abordados no Conteúdo Existente.
+        - **Resumos (Summaries):** Gere **pelo menos um novo resumo perspicaz** focado em um subtópico ou perspectiva ainda não detalhada. Estruture-o didaticamente com tópicos claros.
+        - **Flashcards:** SEJA EXAUSTIVO. Gere **múltiplos flashcards novos e únicos**. Encontre fatos, definições ou pares de conceitos distintos que ainda não foram transformados em flashcards.
+        - **Questões (Questions):** SEJA EXAUSTIVO. Gere **múltiplas questões de múltipla escolha novas e únicas**. Essas questões devem testar uma compreensão profunda do material. Cada questão DEVE ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas sutis que guiem o raciocínio sem entregar a resposta.
 
-    **Conteúdo Existente:**
+    **Conteúdo Existente (para EVITAR repetição):**
     \`\`\`json
     ${JSON.stringify(existingContent, null, 2)}
     \`\`\`
 
-    **Texto-Fonte para Análise:**
+    **Texto-Fonte para Sua Análise:**
     ---
     ${sourceText}
     ---
 
-    Retorne o conteúdo NOVO E INÉDITO no formato JSON, seguindo o schema.
+    Retorne **apenas o conteúdo recém-gerado** no formato JSON especificado. Você DEVE gerar conteúdo para cada categoria, se for minimamente possível.
     `;
     
     const schema = {
@@ -488,7 +507,9 @@ export const generateMoreContentFromSource = async (
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        return JSON.parse(response.text!);
+        // Fix: Ensure response.text exists before parsing.
+        if (!response.text) return { error: "Falha ao explorar a fonte para mais conteúdo." };
+        return JSON.parse(response.text);
     } catch (error) {
         console.error("Error generating more content:", error);
         return { error: "Falha ao explorar a fonte para mais conteúdo." };
@@ -521,4 +542,173 @@ export const generateContentFromPromptAndSources = async (
     `;
     
     return processAndGenerateAllContentFromSource(fullPrompt, []); // Re-use the robust generation logic and schema
+};
+
+export const generateMoreMindMapTopicsFromSource = async (
+    sourceText: string,
+    existingMindMapTitles: string[],
+    userPrompt?: string
+): Promise<{ title: string, prompt: string }[]> => {
+    if (!API_KEY) return [];
+
+    const prompt = `
+    Você é um especialista em material de estudo. Sua tarefa é identificar novos tópicos para mapas mentais a partir de um texto-fonte, evitando duplicatas.
+
+    **Contexto:**
+    1.  **Texto-Fonte:** O texto principal para sua análise é fornecido abaixo.
+    2.  **Títulos de Mapas Mentais Existentes:** Uma lista de títulos que JÁ FORAM CRIADOS é fornecida para evitar repetição.
+        \`\`\`
+        ${JSON.stringify(existingMindMapTitles)}
+        \`\`\`
+    3.  **Tópico do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
+
+    **Sua Tarefa:**
+    1.  **Reanálise Profunda:** Reexamine minuciosamente o Texto-Fonte em busca de quaisquer conceitos centrais, processos ou relações importantes não mapeados que se beneficiariam de uma representação visual.
+    2.  **Identifique e Gere:** Encontre pelo menos um tópico novo e relevante. Para cada novo tópico que encontrar, crie:
+        a. Um **título** curto e descritivo (máximo 5 palavras).
+        b. Uma **frase-prompt** clara e detalhada para gerar a imagem do mapa mental. O prompt deve instruir a IA de imagem a criar um mapa limpo, organizado e com informações de qualidade.
+    3.  **Rigor Anti-Duplicação:** Não crie tópicos com títulos ou conceitos muito semelhantes aos existentes. Seu objetivo é encontrar ângulos genuinamente novos. Você DEVE gerar pelo menos um novo tópico, a menos que seja absolutamente impossível encontrar um conceito distinto no texto.
+
+
+    **Texto-Fonte para Análise:**
+    ---
+    ${sourceText}
+    ---
+
+    Retorne os novos tópicos no formato JSON, seguindo o schema.
+    `;
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            mindMapTopics: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING, description: "Um título curto para o novo mapa mental." },
+                        prompt: { type: Type.STRING, description: "Uma frase-prompt para gerar o novo mapa mental." }
+                    },
+                    required: ['title', 'prompt']
+                }
+            }
+        },
+        required: ['mindMapTopics']
+    };
+
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema },
+        });
+        // Fix: Ensure response.text exists before parsing.
+        if (!response.text) return [];
+        const result = JSON.parse(response.text);
+        return result.mindMapTopics || [];
+    } catch (error) {
+        console.error("Error generating more mind map topics:", error);
+        return [];
+    }
+};
+
+export const generateCaseStudy = async (text: string | null, sources: Source[], userPrompt?: string): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+
+    const materias = [...new Set(sources.map(s => s.materia))];
+    const basePrompt = `
+    Você é um especialista em análise financeira e educador, focado no Banco Central do Brasil (BCB). Sua tarefa é criar um estudo de caso interativo e complexo.
+    
+    ${userPrompt ? `O usuário forneceu um prompt para guiar a criação: "${userPrompt}". Dê prioridade a este foco.` : ''}
+
+    ${text 
+        ? `Use o seguinte texto como base para o estudo de caso: --- ${text} ---`
+        : `Siga este processo de pesquisa em duas etapas para garantir profundidade e precisão:
+
+1.  **Pesquisa Inicial (Etapa 1):** Usando suas ferramentas de pesquisa, identifique vários eventos ou casos de estudo reais, significativos e bem documentados que envolvem grandes decisões ou intervenções do Banco Central do Brasil (BCB). Considere tópicos como controle de inflação, estabilidade financeira, crises bancárias, ou grandes mudanças regulatórias. Use as matérias a seguir como contexto para esta pesquisa inicial: ${materias.join(', ')}.
+
+2.  **Pesquisa Aprofundada (Etapa 2):** A partir dos resultados da primeira etapa, selecione o caso mais robusto e interessante. Em seguida, realize uma segunda pesquisa, mais aprofundada e focada *exclusivamente* neste caso escolhido. Busque detalhes, cronologias, os principais atores envolvidos, as opções que foram consideradas e os resultados das ações tomadas.
+
+3.  **Criação do Estudo de Caso:** Com base na sua pesquisa aprofundada e no contexto das fontes da plataforma, construa o estudo de caso.`
+    }
+
+    Com base na informação, construa o estudo de caso seguindo estas etapas:
+    1.  **Análise e Resumo**:
+        - Crie um \`title\` conciso e informativo para o caso. Se um nome de caso de estudo for fornecido pelo usuário, use-o como base, mas sinta-se à vontade para refiná-lo para maior clareza.
+        - Escreva um \`summary\` breve (2-4 frases) explicando o problema central.
+        - Identifique e liste os principais \`key_points\` do caso.
+        - Correlacione este caso com a seguinte lista de matérias acadêmicas, retornando as mais relevantes: ${JSON.stringify(materias)}
+
+    2.  **Crie Pontos de Decisão Interativos**:
+        - Identifique de 2 a 4 momentos críticos no caso onde o BCB teve que tomar uma decisão significativa. Estes serão seus \`decision_points\`.
+        - Para cada ponto de decisão, forneça:
+            - \`context\`: Um parágrafo detalhado descrevendo a situação e o desafio enfrentado pelo BCB.
+            - \`options\`: Um array com exatamente 3 ações plausíveis e distintas. Uma delas deve ser a ação que o BCB realmente tomou. Para cada opção:
+                - \`text\`: Uma descrição clara da ação.
+                - \`predicted_outcome\`: Uma previsão realista das consequências prováveis se esta ação fosse tomada.
+            - \`actual_bcb_action\`: Uma string que corresponda EXATAMENTE ao texto da opção correta no array \`options\`.
+            - \`bcb_action_outcome\`: Uma explicação detalhada do que realmente aconteceu como resultado da decisão real do BCB.
+
+    Retorne tudo em um único objeto JSON que siga estritamente o schema fornecido. Os IDs devem ser UUIDs gerados aleatoriamente.
+    `;
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            key_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+            correlated_materias: { type: Type.ARRAY, items: { type: Type.STRING } },
+            decision_points: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING, description: "UUID aleatório" },
+                        context: { type: Type.STRING },
+                        options: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    id: { type: Type.STRING, description: "UUID aleatório" },
+                                    text: { type: Type.STRING },
+                                    predicted_outcome: { type: Type.STRING },
+                                },
+                                required: ['id', 'text', 'predicted_outcome']
+                            }
+                        },
+                        actual_bcb_action: { type: Type.STRING },
+                        bcb_action_outcome: { type: Type.STRING }
+                    },
+                    required: ['id', 'context', 'options', 'actual_bcb_action', 'bcb_action_outcome']
+                }
+            }
+        },
+        required: ['title', 'summary', 'key_points', 'correlated_materias', 'decision_points']
+    };
+
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-pro',
+            contents: basePrompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: schema,
+                ...(text ? {} : { tools: [{googleSearch: {}}] })
+            },
+        });
+        // Fix: Ensure response.text exists before parsing.
+        if (!response.text) return { error: "Falha ao gerar o estudo de caso." };
+        const result = JSON.parse(response.text);
+        // Gemini doesn't generate UUIDs, so let's add them here.
+        result.decision_points.forEach((dp: any) => {
+            dp.id = crypto.randomUUID();
+            dp.options.forEach((opt: any) => opt.id = crypto.randomUUID());
+        });
+        return result;
+    } catch (error) {
+        console.error("Error generating case study:", error);
+        return { error: "Falha ao gerar o estudo de caso." };
+    }
 };
