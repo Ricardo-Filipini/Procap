@@ -111,7 +111,7 @@ export const CronogramaView: React.FC<CronogramaViewProps> = (props) => {
 
     const selectedDayEvents = useMemo(() => {
         const dateString = selectedDate.toISOString().split('T')[0];
-        return (scheduleByDate[dateString] || []).sort((a,b) => a.startTime.localeCompare(b.startTime));
+        return (scheduleByDate[dateString] || []).sort((a,b) => (a.startTime || '').localeCompare(b.startTime || ''));
     }, [selectedDate, scheduleByDate]);
 
     return (

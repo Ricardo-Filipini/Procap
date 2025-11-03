@@ -820,7 +820,8 @@ export const NotebookDetailView: React.FC<{
             <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
 
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
-                {(currentQuestion?.options || []).map((option, index) => {
+                {/* FIX: Explicitly type `option` as a string to resolve TS error due to upstream type pollution. */}
+                {(currentQuestion?.options || []).map((option: string, index: number) => {
                     const isSelected = selectedOption === option;
                     const isWrong = wrongAnswers.has(option);
                     const isCorrect = option === currentQuestion.correctAnswer;
