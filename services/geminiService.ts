@@ -1,10 +1,9 @@
-
-
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
 
-// Fix: Use process.env.API_KEY as per Gemini API guidelines to resolve TypeScript error.
-const API_KEY = process.env.API_KEY;
+// Tenta usar a variável de ambiente VITE_API_KEY do build, se não existir, usa process.env.API_KEY como fallback.
+// Fix: Cast `import.meta` to `any` to access the `env` property, which is added by Vite during the build process but may not be recognized by TypeScript's default typings without a `vite-env.d.ts` file.
+const API_KEY = (import.meta as any).env.VITE_API_KEY || process.env.API_KEY;
 
 if (!API_KEY) {
   console.warn("API_KEY not found. Gemini API features will be disabled.");

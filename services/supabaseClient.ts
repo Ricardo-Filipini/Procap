@@ -1,5 +1,3 @@
-
-
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent } from '../types';
 
@@ -413,10 +411,12 @@ INSERT INTO public.schedule_events (id, date, start_time, end_time, title, profe
 ON CONFLICT (id) DO NOTHING;
 */
 
-// Fix: Use process.env for environment variables to resolve TypeScript errors.
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://rwiagpksyjkxodlyrjaw.supabase.co';
-// Fix: Use process.env for environment variables to resolve TypeScript errors.
-const supabaseKey = process.env.VITE_SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3aWFncGtzeWpreG9kbHlyamF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTU5NDMsImV4cCI6MjA3NTMzMTk0M30.HEJJqYpzVWmFs3rX6sIYtQf0xxfph3r2bZbjV-iVzHs';
+// Tenta usar as variáveis de ambiente do Vite (import.meta.env) primeiro.
+// Se não encontradas, recorre a process.env (para outros ambientes) e, finalmente, a um valor fixo.
+// Fix: Cast `import.meta` to `any` to access the `env` property, which is added by Vite during the build process but may not be recognized by TypeScript's default typings without a `vite-env.d.ts` file.
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://rwiagpksyjkxodlyrjaw.supabase.co';
+// Fix: Cast `import.meta` to `any` to access the `env` property, which is added by Vite during the build process but may not be recognized by TypeScript's default typings without a `vite-env.d.ts` file.
+const supabaseKey = (import.meta as any).env.VITE_SUPABASE_KEY || process.env.VITE_SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3aWFncGtzeWpreG9kbHlyamF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTU5NDMsImV4cCI6MjA3NTMzMTk0M30.HEJJqYpzVWmFs3rX6sIYtQf0xxfph3r2bZbjV-iVzHs';
 
 export let supabase: SupabaseClient | null = null;
 
