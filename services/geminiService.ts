@@ -3,6 +3,7 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
 
+// Fix: Use process.env.API_KEY as per Gemini API guidelines to resolve TypeScript error.
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
