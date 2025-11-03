@@ -9,7 +9,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 import { filterItemsByPrompt, generateNotebookName } from '../../services/geminiService';
-import { addQuestionNotebook, upsertUserVote, incrementVoteCount, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers } from '../../services/supabaseClient';
+import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase } from '../../services/supabaseClient';
 
 const CreateNotebookModal: React.FC<{
     isOpen: boolean;
@@ -384,7 +384,12 @@ export const NotebookGridView: React.FC<{
             id = 'all_notebooks';
             name = "Todas as Questões";
             questionCount = appData.sources.flatMap(s => s.questions).length;
-            resolvedCount = appData.userQuestionAnswers.filter(ans => ans.user_id === currentUser.id && ans.notebook_id === 'all_questions').length;
+            const allAnsweredQuestionIds = new Set(
+                appData.userQuestionAnswers
+                    .filter(ans => ans.user_id === currentUser.id)
+                    .map(ans => ans.question_id)
+            );
+            resolvedCount = allAnsweredQuestionIds.size;
             onSelect = () => onSelectNotebook('all');
         } else if (notebook === 'favorites') {
              if (favoritedQuestionIds.length === 0) return null;
@@ -472,6 +477,44 @@ export const NotebookDetailView: React.FC<{
     const [userAnswers, setUserAnswers] = useState<Map<string, UserQuestionAnswer>>(new Map());
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     
+    // This new useEffect will run when the notebook view is opened, fetching the latest answers.
+    useEffect(() => {
+        const fetchFreshAnswers = async () => {
+            // supabase is imported from supabaseClient
+            if (!supabase) return;
+            
+            const { data, error } = await supabase
+                .from('user_question_answers')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .eq('notebook_id', notebookId);
+            
+            if (error) {
+                console.error("Failed to fetch fresh answers for notebook:", error);
+            } else if (data) {
+                // Update the global appData state with the freshest data.
+                // This will trigger the other useEffect to update the local 'userAnswers' map.
+                setAppData(prev => {
+                    // Use a Map to efficiently merge the fresh data, overwriting any stale local data.
+                    const answerMap = new Map(prev.userQuestionAnswers.map(a => [a.id, a]));
+                    data.forEach(freshAnswer => {
+                        answerMap.set(freshAnswer.id, freshAnswer);
+                    });
+                    return {
+                        ...prev,
+                        userQuestionAnswers: Array.from(answerMap.values())
+                    };
+                });
+            }
+        };
+        
+        // Only run the fetch if we have a valid user and notebook.
+        if (currentUser?.id && notebookId) {
+            fetchFreshAnswers();
+        }
+
+    }, [currentUser.id, notebookId, setAppData]); // Re-run if user or notebook changes.
+
     useEffect(() => {
         const answersForNotebook = appData.userQuestionAnswers.filter(
             ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId
@@ -620,7 +663,8 @@ export const NotebookDetailView: React.FC<{
 
             const answerPayload: Partial<UserQuestionAnswer> = {
                 user_id: currentUser.id, notebook_id: notebookId, question_id: currentQuestion.id,
-                attempts: attempts, is_correct_first_try: isCorrectFirstTry, xp_awarded: xpGained
+                attempts: attempts, is_correct_first_try: isCorrectFirstTry, xp_awarded: xpGained,
+                timestamp: new Date().toISOString()
             };
             const savedAnswer = await upsertUserQuestionAnswer(answerPayload);
             if (savedAnswer) {

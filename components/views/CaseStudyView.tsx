@@ -4,7 +4,8 @@ import { CaseStudy, DecisionOption, UserCaseStudyInteraction, Comment, Source, U
 import { SparklesIcon, TrashIcon, CheckCircleIcon, XMarkIcon, CloudArrowUpIcon } from '../Icons';
 import { Modal } from '../Modal';
 import { generateCaseStudy } from '../../services/geminiService';
-import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementCaseStudyVote for type safety and correctness.
+import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementCaseStudyVote, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
 import { ContentActions } from '../shared/ContentActions';
 import { CommentsModal } from '../shared/CommentsModal';
 import { useContentViewController } from '../../hooks/useContentViewController';
@@ -330,7 +331,8 @@ export const CaseStudyView: React.FC<MainContentProps> = (props) => {
         
         setAppData(prev => ({...prev, caseStudies: prev.caseStudies.map(cs => cs.id === caseStudyId ? {...cs, [`${type}_votes`]: cs[`${type}_votes`] + increment} : cs)}));
         
-        await incrementVoteCount('increment_case_study_vote', caseStudyId, `${type}_votes`, increment);
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementCaseStudyVote function.
+        await incrementCaseStudyVote(caseStudyId, `${type}_votes`, increment);
     };
 
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {

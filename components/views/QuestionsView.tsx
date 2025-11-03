@@ -5,7 +5,8 @@ import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { addQuestionNotebook, upsertUserVote, incrementVoteCount, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementNotebookVote for type safety and correctness.
+import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase } from '../../services/supabaseClient';
 import { NotebookDetailView, NotebookGridView } from './QuestionsViewPart2';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
@@ -33,6 +34,31 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
         }
     }, [filterTerm, clearFilter, appData.questionNotebooks]);
 
+    useEffect(() => {
+        const fetchAllUserAnswers = async () => {
+            if (!supabase || !currentUser) return;
+
+            const { data, error } = await supabase
+                .from('user_question_answers')
+                .select('*')
+                .eq('user_id', currentUser.id);
+
+            if (error) {
+                console.error("Failed to fetch all user answers:", error);
+            } else if (data) {
+                setAppData(prev => {
+                    const otherUsersAnswers = prev.userQuestionAnswers.filter(a => a.user_id !== currentUser.id);
+                    return {
+                        ...prev,
+                        userQuestionAnswers: [...otherUsersAnswers, ...data]
+                    };
+                });
+            }
+        };
+
+        fetchAllUserAnswers();
+    }, [currentUser.id, setAppData]);
+
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
         let newInteractions = [...appData.userNotebookInteractions];
         const existingIndex = newInteractions.findIndex(i => i.user_id === currentUser.id && i.notebook_id === notebookId);
@@ -59,7 +85,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
         
         setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
         
-        await incrementVoteCount('increment_notebook_vote', notebookId, `${type}_votes`, increment);
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementNotebookVote function.
+        await incrementNotebookVote(notebookId, `${type}_votes`, increment);
         
         const notebook = appData.questionNotebooks.find(n => n.id === notebookId);
         if (notebook) {

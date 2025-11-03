@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
-import { addChatMessage, supabase, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementMessageVote for type safety and correctness.
+import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
 import { getSimpleChatResponse } from '../../services/geminiService';
 
 const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>; onNavigate: (viewName: string, term: string) => void;}> = ({currentUser, appData, setAppData, onNavigate}) => {
@@ -121,7 +122,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         });
 
         await upsertUserVote('user_message_votes', { user_id: currentUser.id, message_id: messageId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'message_id']);
-        await incrementVoteCount('increment_message_vote', messageId, `${type}_votes`, increment);
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementMessageVote function.
+        await incrementMessageVote(messageId, `${type}_votes`, increment);
 
         if (author && !isOwnContent) {
             const xpChange = (type === 'hot' ? 1 : -1) * increment;

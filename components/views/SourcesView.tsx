@@ -4,7 +4,8 @@ import { Source } from '../../types';
 import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon } from '../Icons';
 import { Modal } from '../Modal';
 import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreContentFromSource, generateMoreMindMapTopicsFromSource } from '../../services/geminiService';
-import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource, addSourceComment } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementSourceVote for type safety and correctness.
+import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementSourceVote, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource, addSourceComment } from '../../services/supabaseClient';
 import { supabase } from '../../services/supabaseClient';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import * as mammoth from 'mammoth';
@@ -460,7 +461,8 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
         });
 
         await upsertUserVote('user_source_votes', { user_id: currentUser.id, source_id: sourceId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'source_id']);
-        await incrementVoteCount('increment_source_vote', sourceId, `${type}_votes`, increment);
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementSourceVote function.
+        await incrementSourceVote(sourceId, `${type}_votes`, increment);
         
         const source = appData.sources.find(s => s.id === sourceId);
         if (source && source.user_id !== currentUser.id) {

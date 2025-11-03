@@ -7,7 +7,8 @@ import { getPersonalizedStudyPlan } from '../../services/geminiService';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { CommentsModal } from '../shared/CommentsModal';
-import { upsertUserVote, incrementVoteCount, updateContentComments, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementNotebookVote for type safety and correctness.
+import { upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
@@ -129,7 +130,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
         
         setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
         
-        await incrementVoteCount('increment_notebook_vote', notebookId, `${type}_votes`, increment);
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementNotebookVote function.
+        await incrementNotebookVote(notebookId, `${type}_votes`, increment);
     };
 
      const handleNotebookCommentAction = async (action: 'add' | 'vote', payload: any) => {

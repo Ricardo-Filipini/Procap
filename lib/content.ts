@@ -132,7 +132,7 @@ export const handleVoteUpdate = async (
         ...voteUpdate
     }));
 
-    dbPromises.push(incrementContentVote(contentType, contentId, `${type}_votes`, increment));
+    dbPromises.push(incrementContentVote(tableName, contentId, `${type}_votes`, increment));
     
     // XP for content author
     if (contentType !== 'cronograma') {

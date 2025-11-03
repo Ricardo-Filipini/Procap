@@ -156,16 +156,22 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
         <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
             <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{audio.title}</h3>
             <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
-            {audio.audioUrl.toLowerCase().includes('.mp4') ? (
-                <video controls className="w-full rounded-md max-h-72">
-                    <source src={audio.audioUrl} type="video/mp4" />
-                    Seu navegador não suporta o elemento de vídeo.
-                </video>
+            {audio.audioUrl ? (
+                audio.audioUrl.toLowerCase().includes('.mp4') ? (
+                    <video controls className="w-full rounded-md max-h-72">
+                        <source src={audio.audioUrl} type="video/mp4" />
+                        Seu navegador não suporta o elemento de vídeo.
+                    </video>
+                ) : (
+                    <audio controls className="w-full">
+                        <source src={audio.audioUrl} type="audio/mpeg" />
+                        Seu navegador não suporta este elemento de áudio.
+                    </audio>
+                )
             ) : (
-                <audio controls className="w-full">
-                    <source src={audio.audioUrl} type="audio/mpeg" />
-                    Seu navegador não suporta este elemento de áudio.
-                </audio>
+                 <div className="w-full p-4 text-center bg-gray-100 dark:bg-gray-700 rounded-md">
+                    <p className="text-sm text-gray-500">Mídia indisponível ou processando.</p>
+                </div>
             )}
             <ContentActions
                 item={audio} contentType={contentType} currentUser={currentUser} interactions={appData.userContentInteractions}
