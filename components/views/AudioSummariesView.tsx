@@ -152,19 +152,30 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
         const createdAt = new Date(audio.source?.created_at || Date.now());
         const formattedDate = `${createdAt.toLocaleDateString('pt-BR')} ${createdAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
         
+        const filePath = audio.source?.storage_path?.[0];
+        let mediaUrl: string | undefined;
+
+        if (filePath && supabase) {
+            const { data } = supabase.storage.from('sources').getPublicUrl(filePath);
+            mediaUrl = data.publicUrl;
+        } else {
+            // Fallback for safety, in case source or storage_path is missing
+            mediaUrl = audio.audioUrl;
+        }
+
         return (
         <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
             <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{audio.title}</h3>
             <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
-            {audio.audioUrl ? (
-                audio.audioUrl.toLowerCase().includes('.mp4') ? (
+            {mediaUrl ? (
+                mediaUrl.toLowerCase().includes('.mp4') ? (
                     <video controls className="w-full rounded-md max-h-72">
-                        <source src={audio.audioUrl} type="video/mp4" />
+                        <source src={mediaUrl} type="video/mp4" />
                         Seu navegador não suporta o elemento de vídeo.
                     </video>
                 ) : (
                     <audio controls className="w-full">
-                        <source src={audio.audioUrl} type="audio/mpeg" />
+                        <source src={mediaUrl} type="audio/mpeg" />
                         Seu navegador não suporta este elemento de áudio.
                     </audio>
                 )
