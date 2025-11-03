@@ -255,7 +255,8 @@ const NotebookStatsModal: React.FC<{
             return new Set(appData.sources.flatMap(s => s.questions.map(q => q.id)));
         }
         // FIX: Ensure `question_ids` is an array of strings before creating a Set to prevent type errors.
-        return new Set((notebook.question_ids || []).map(String));
+        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+        return new Set(ids);
     }, [notebook, appData.sources]);
 
     const relevantAnswers = useMemo(() => {
@@ -539,7 +540,9 @@ export const NotebookDetailView: React.FC<{
     
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        const idSet = new Set((notebook.question_ids || []).map(String));
+        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
+        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+        const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
 

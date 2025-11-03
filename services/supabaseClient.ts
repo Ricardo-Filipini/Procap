@@ -207,7 +207,9 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
                     questionText: q.question_text,
                     correctAnswer: q.correct_answer,
                 })),
-            mind_maps: rawMindMaps.filter(m => m.source_id === source.id),
+            mind_maps: rawMindMaps
+                .filter(m => m.source_id === source.id)
+                .map((m: any) => ({ ...m, imageUrl: m.image_url })),
             audio_summaries: rawAudioSummaries.filter(a => a.source_id === source.id),
         }));
 
@@ -317,7 +319,7 @@ export const addGeneratedContent = async (sourceId: string, content: any): Promi
             const payload = content.mind_maps.map((m: any) => ({...m, source_id: sourceId, image_url: m.imageUrl}));
             const { data, error } = await supabase!.from('mind_maps').insert(payload).select();
             if(error) throw error;
-            results.mind_maps = data;
+            results.mind_maps = data.map((m: any) => ({...m, imageUrl: m.image_url}));
         }
         return results;
     } catch(err) {
@@ -350,7 +352,7 @@ export const appendGeneratedContentToSource = async (sourceId: string, content: 
             const payload = content.mind_maps.map((m: any) => ({...m, source_id: sourceId, image_url: m.imageUrl}));
             const { data, error } = await supabase!.from('mind_maps').insert(payload).select();
             if(error) throw error;
-            results.newMindMaps = data;
+            results.newMindMaps = data.map((m: any) => ({...m, imageUrl: m.image_url}));
         }
         return results;
     } catch(err) {
