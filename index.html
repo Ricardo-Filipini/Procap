@@ -2,55 +2,94 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!--
-      The meta tags below are a good first line of defense against caching,
-      but are not always respected by all browsers or proxies.
-    -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <meta name="app-version" content="20240823.5" />
 
-    <!-- 
-      ROBUST CACHE BUSTING:
-      The version meta tag and the script below work together to create a more
-      aggressive and reliable cache-busting system.
-    -->
-    <meta name="app-version" content="20240823.1" />
     <script>
-      (async () => {
+      // --- UNIFIED CACHE & ERROR HANDLING SCRIPT (v3.1) ---
+
+      // This function is the single source of truth for performing a full cleanup.
+      const forceCleanupAndReload = async () => {
+        console.warn('[Cache Manager] Aggressive cleanup initiated...');
+        // FIX: Use document.documentElement, which is always available in <head>.
+        // This prevents the "Cannot set properties of null (setting 'innerHTML')" error on document.body.
+        document.documentElement.innerHTML = `<body style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; text-align: center; padding: 1rem; background-color: #f9fafb; color: #1f2937;">Limpando cache e recarregando... Por favor, aguarde.</body>`;
+
         try {
-          const currentVersionMeta = document.querySelector('meta[name="app-version"]');
-          if (!currentVersionMeta) {
-            console.warn('App version meta tag not found. Skipping cache check.');
-            return;
-          }
-          const currentVersion = currentVersionMeta.getAttribute('content');
-
-          // Fetch the latest index.html directly from the server, bypassing the cache.
-          const response = await fetch('/index.html?cache_bust=' + Date.now(), {
-            cache: 'no-store', // Be explicit with the fetch request
-            headers: {
-              'Pragma': 'no-cache',
-              'Cache-Control': 'no-cache'
+          if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            if (registrations.length) {
+              await Promise.all(registrations.map(reg => reg.unregister()));
+              console.log(`[Cache Manager] ${registrations.length} service worker(s) unregistered.`);
             }
-          });
-
-          if (!response.ok) return;
-
-          const serverHtml = await response.text();
-          
-          // Use a simple regex to extract the version from the server's HTML text.
-          const versionMatch = serverHtml.match(/<meta name="app-version" content="([^"]+)">/);
-          const serverVersion = versionMatch ? versionMatch[1] : null;
-
-          // If the server has a different version, force a hard reload.
-          if (serverVersion && currentVersion && serverVersion !== currentVersion) {
-            console.log(`[Cache Bust] Stale version detected. Client: ${currentVersion}, Server: ${serverVersion}. Forcing reload.`);
-            window.location.reload(true); // The 'true' argument forces a hard reload from the server.
           }
-        } catch (error) {
-          console.error('[Cache Bust] Failed to check for new version:', error);
-          // If the check fails, we let the app attempt to load normally.
+          if ('caches' in window) {
+            const keys = await window.caches.keys();
+            if (keys.length) {
+              await Promise.all(keys.map(key => window.caches.delete(key)));
+              console.log(`[Cache Manager] ${keys.length} cache(s) deleted.`);
+            }
+          }
+        } catch (err) {
+          console.error('[Cache Manager] Cleanup failed:', err);
+        } finally {
+          console.log('[Cache Manager] Forcing hard reload via URL parameter...');
+          // Use URL modification for a more robust cache bypass than reload(true).
+          const url = new URL(window.location.href);
+          url.searchParams.set('force_reload', Date.now());
+          window.location.href = url.href;
+        }
+      };
+      
+      // This function displays the error UI. The button calls the cleanup function above.
+      const showAppLoadErrorScreen = (error) => {
+        console.error('Failed to load the application module.', error);
+        const root = document.getElementById('root');
+        if (root) {
+          document.body.className = 'bg-background-light';
+          root.innerHTML = `
+            <div style="font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; padding: 2rem; color: #1f2937; background-color: #f9fafb;">
+              <div style="text-align: center; max-width: 600px; padding: 2rem; background-color: #ffffff; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); border: 1px solid #e5e7eb;">
+                <h1 style="font-size: 1.5rem; font-weight: bold; color: #ef4444;">Falha ao Carregar o Aplicativo</h1>
+                <p style="margin-top: 1rem; color: #4b5563;">
+                  Parece que estamos com problemas para carregar a versão mais recente do Procap. Isso geralmente acontece por causa de arquivos desatualizados no cache do seu navegador.
+                </p>
+                <p style="margin-top: 0.5rem; color: #4b5563;">
+                  Por favor, clique no botão abaixo para forçar uma atualização completa. Isso deve resolver o problema.
+                </p>
+                <button 
+                  onclick="forceCleanupAndReload()" 
+                  style="margin-top: 1.5rem; background-color: #4f46e5; color: white; font-weight: bold; padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem; cursor: pointer; transition: background-color 0.3s;"
+                  onmouseover="this.style.backgroundColor='#4338ca'"
+                  onmouseout="this.style.backgroundColor='#4f46e5'"
+                >
+                  Limpar Cache e Recarregar
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      };
+
+      // --- PROACTIVE CLEANUP ---
+      // If a service worker is actively controlling the page, it's a high risk of being stale.
+      (async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        // If we just reloaded, don't immediately try to clean again. Clean the URL and proceed.
+        if (urlParams.has('force_reload')) {
+            console.warn('[Cache Manager] Proactive check skipped due to recent forced reload.');
+            urlParams.delete('force_reload');
+            const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
+            // Silently update the URL in the address bar without reloading.
+            history.replaceState({}, document.title, newUrl);
+            return;
+        }
+
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          console.warn('[Cache Manager] Page is controlled by a service worker. Assuming stale, initiating proactive cleanup.');
+          await forceCleanupAndReload();
         }
       })();
     </script>
@@ -113,16 +152,20 @@
         }
       }
     </script>
+    <!-- Polyfill for import maps to ensure broader browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js" crossorigin="anonymous"></script>
   <script type="importmap">
 {
   "imports": {
-    "recharts": "https://aistudiocdn.com/recharts@^3.2.1",
+    "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^18.3.1",
+    "react/": "https://aistudiocdn.com/react@^18.3.1/",
+    "react-dom": "https://aistudiocdn.com/react-dom@^18.3.1",
+    "react-dom/client": "https://aistudiocdn.com/react-dom@^18.3.1/client",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^18.3.1/",
     "pdfjs-dist/build/pdf.mjs": "https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.mjs",
-    "pdfjs-dist/": "https://aistudiocdn.com/pdfjs-dist@^5.4.149/",
+    "pdfjs-dist/": "https://aistudiocdn.com/pdfjs-dist@^4.4.168/",
     "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
     "mammoth": "https://cdn.jsdelivr.net/npm/mammoth@1.7.1/+esm"
   }
@@ -131,6 +174,20 @@
 </head>
   <body class="bg-background-light dark:bg-background-dark">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script>
+      // --- DYNAMIC MODULE LOADER ---
+      try {
+        const versionMeta = document.querySelector('meta[name="app-version"]');
+        const version = versionMeta ? versionMeta.getAttribute('content') : Date.now();
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'index.tsx?v=' + version;
+        // The error handler is now globally defined in the head.
+        script.onerror = showAppLoadErrorScreen;
+        document.body.appendChild(script);
+      } catch (error) {
+        showAppLoadErrorScreen(error);
+      }
+    </script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { GenerateContentModal } from '../shared/GenerateContentModal';

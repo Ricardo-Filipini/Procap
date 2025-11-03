@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { CaseStudy, DecisionOption, UserCaseStudyInteraction, Comment, Source, UserContentInteraction } from '../../types';
 import { SparklesIcon, TrashIcon, CheckCircleIcon, XMarkIcon, CloudArrowUpIcon } from '../Icons';
 import { Modal } from '../Modal';

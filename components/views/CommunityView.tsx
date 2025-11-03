@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AppData, User, ChatMessage } from '../../types';
-import { MainContentProps } from '../MainContent';
+import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { addChatMessage, supabase, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';

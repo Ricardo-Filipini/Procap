@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';

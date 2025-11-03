@@ -3,15 +3,15 @@ import { AppData, View, ScheduleEvent } from './types';
 import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon, DocumentTextIcon, CalendarDaysIcon } from './components/Icons';
 
 export const VIEWS: View[] = [
-    { name: 'Comunidade', icon: UsersIcon},
-    { name: 'Fontes', icon: CloudArrowUpIcon },
-    { name: 'Resumos', icon: BookOpenIcon },
-    { name: 'Flashcards', icon: SparklesIcon },
     { name: 'Questões', icon: QuestionMarkCircleIcon },
-    { name: 'Estudo de Caso', icon: DocumentTextIcon },
-    { name: 'Cronograma', icon: CalendarDaysIcon },
-    { name: 'Mapas Mentais', icon: ShareIcon },
     { name: 'Mídia', icon: SpeakerWaveIcon },
+    { name: 'Flashcards', icon: SparklesIcon },
+    { name: 'Resumos', icon: BookOpenIcon },
+    { name: 'Mapas Mentais', icon: ShareIcon },
+    { name: 'Fontes', icon: CloudArrowUpIcon },
+    { name: 'Comunidade', icon: UsersIcon},
+    { name: 'Cronograma', icon: CalendarDaysIcon },
+    { name: 'Estudo de Caso', icon: DocumentTextIcon },
     { name: 'Perfil', icon: UserCircleIcon },
     { name: 'Admin', icon: ShieldCheckIcon, adminOnly: true },
 ];

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { AudioSummary, Comment, ContentType, Source } from '../../types';
 import { Modal } from '../Modal';
 import { CommentsModal } from '../shared/CommentsModal';

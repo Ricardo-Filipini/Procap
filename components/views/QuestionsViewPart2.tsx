@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { Modal } from '../Modal';
@@ -518,8 +518,18 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        const orderMap = new Map(notebook.question_ids.map((id, index) => [String(id), index]));
-                        groupToSort.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity));
+                        // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
+                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+                        const orderMap = new Map(questionIds.map((id, index) => [id, index]));
+                        // FIX: Replace subtraction in sort with a more robust comparison to avoid potential type errors.
+                        groupToSort.sort((a, b) => {
+                            // FIX: Explicitly cast question IDs to strings to prevent type errors.
+                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
+                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
+                            if (orderA < orderB) return -1;
+                            if (orderA > orderB) return 1;
+                            return 0;
+                        });
                     }
                     // For 'all' notebook, 'default' has no specific order, so we don't sort.
                     break;
@@ -602,7 +612,8 @@ export const NotebookDetailView: React.FC<{
 
         const wasAnsweredBefore = userAnswers.has(currentQuestion.id);
         if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
-            const attempts = [...newWrongAnswers, option];
+            // FIX: Use spread operator directly on the Set, which is more idiomatic and avoids potential type inference issues with Array.from.
+            const attempts: string[] = [...newWrongAnswers, option];
             const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0];
             const xpGained = isCorrect ? (xpMap[wrongAnswers.size] || 0) : 0;

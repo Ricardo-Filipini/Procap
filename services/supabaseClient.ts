@@ -411,8 +411,8 @@ INSERT INTO public.schedule_events (id, date, start_time, end_time, title, profe
 ON CONFLICT (id) DO NOTHING;
 */
 
-const supabaseUrl = 'https://rwiagpksyjkxodlyrjaw.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3aWFncGtzeWpreG9kbHlyamF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTU5NDMsImV4cCI6MjA3NTMzMTk0M30.HEJJqYpzVWmFs3rX6sIYtQf0xxfph3r2bZbjV-iVzHs';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://rwiagpksyjkxodlyrjaw.supabase.co';
+const supabaseKey = process.env.VITE_SUPABASE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3aWFncGtzeWpreG9kbHlyamF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3NTU5NDMsImV4cCI6MjA3NTMzMTk0M30.HEJJqYpzVWmFs3rX6sIYtQf0xxfph3r2bZbjV-iVzHs';
 
 export let supabase: SupabaseClient | null = null;
 
@@ -434,9 +434,9 @@ const checkSupabase = () => {
     return true;
 }
 
-export const getInitialData = async (): Promise<AppData> => {
+export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
     const emptyData: AppData = { users: [], sources: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
-    if (!checkSupabase()) return emptyData;
+    if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
         const fetchTable = async (tableName: string, ordering?: { column: string, options: { ascending: boolean } }) => {
@@ -446,8 +446,8 @@ export const getInitialData = async (): Promise<AppData> => {
             }
             const { data, error } = await query;
             if (error) {
-                console.error(`Error fetching data from table "${tableName}": ${error.message}`);
-                return [];
+                // Throw the error to be caught by the outer try-catch block
+                throw new Error(`Error fetching data from table "${tableName}": ${error.message}`);
             }
             return data || [];
         };
@@ -551,7 +551,7 @@ export const getInitialData = async (): Promise<AppData> => {
             endTime: e.end_time
         }));
 
-        return {
+        const finalData = {
             users: users as User[],
             sources: sourcesData as Source[],
             chatMessages: chatMessages as ChatMessage[],
@@ -565,9 +565,12 @@ export const getInitialData = async (): Promise<AppData> => {
             userQuestionAnswers: userQuestionAnswers as UserQuestionAnswer[],
             userCaseStudyInteractions: userCaseStudyInteractions as UserCaseStudyInteraction[],
         };
+        
+        return { data: finalData, error: null };
+
     } catch (error: any) {
         console.error("An unexpected error occurred during initial data fetch:", error.message || error);
-        return emptyData;
+        return { data: emptyData, error: error.message };
     }
 };
 

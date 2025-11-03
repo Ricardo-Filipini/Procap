@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ScheduleEvent, Comment, ContentType } from '../../types';
-import { MainContentProps } from '../MainContent';
+import { ScheduleEvent, Comment, ContentType, MainContentProps } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentActions } from '../shared/ContentActions';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';

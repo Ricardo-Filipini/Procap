@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { MainContentProps } from '../MainContent';
+import { MainContentProps } from '../../types';
 import { User, QuestionNotebook, UserNotebookInteraction } from '../../types';
 import { UserCircleIcon, SparklesIcon } from '../Icons';
 import { getPersonalizedStudyPlan } from '../../services/geminiService';
@@ -11,13 +11,16 @@ import { upsertUserVote, incrementVoteCount, updateContentComments, updateUser a
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
-// Fix: Changed 'user' to 'currentUser' to match MainContentProps.
 interface ProfileViewProps extends Pick<MainContentProps, 'currentUser' | 'appData' | 'setAppData' | 'updateUser'> {
   onNavigate: (viewName: string, term: string) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, appData, setAppData, updateUser, onNavigate }) => {
-    const { correctAnswers, questionsAnswered, topicPerformance } = user.stats;
+    const { 
+        correctAnswers = 0, 
+        questionsAnswered = 0, 
+        topicPerformance = {} 
+    } = user.stats || {};
     const overallAccuracy = questionsAnswered > 0 ? (correctAnswers / questionsAnswered) * 100 : 0;
     const pieData = [ { name: 'Corretas', value: correctAnswers }, { name: 'Incorretas', value: questionsAnswered - correctAnswers } ];
     const COLORS = ['#10b981', '#ef4444'];

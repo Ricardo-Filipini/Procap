@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
-import { Theme, User, AppData, View } from './types';
+import { Theme, User, AppData, View, ProcessingTask } from './types';
 import { INITIAL_APP_DATA, VIEWS } from './constants';
 import { getInitialData, createUser, updateUser as supabaseUpdateUser } from './services/supabaseClient';
 
@@ -10,13 +10,14 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem('procap_theme') as Theme | null;
     return savedTheme || 'light';
   });
-  const communityView = VIEWS.find(v => v.name === 'Comunidade') || VIEWS[0];
-  const [activeView, setActiveView] = useState<View>(communityView);
+  const defaultView = VIEWS.find(v => v.name === 'Questões') || VIEWS[0];
+  const [activeView, setActiveView] = useState<View>(defaultView);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [appData, setAppData] = useState<AppData>(INITIAL_APP_DATA);
   const [isLoading, setIsLoading] = useState(true);
-  const [processingTasks, setProcessingTasks] = useState<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [processingTasks, setProcessingTasks] = useState<ProcessingTask[]>([]);
   const [xpToasts, setXpToasts] = useState<{ id: number; amount: number }[]>([]);
   const prevXpRef = useRef(currentUser?.xp);
 
@@ -25,13 +26,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
         const data = await getInitialData();
-        setAppData(data);
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        setAppData(data.data);
         // Restore user session if available from localStorage
         const savedUserId = localStorage.getItem('procap_lastUserId');
         if (savedUserId) {
-          const userToLogin = data.users.find(u => u.id === savedUserId);
+          const userToLogin = data.data.users.find(u => u.id === savedUserId);
           if (userToLogin) {
             setCurrentUser(userToLogin);
           } else {
@@ -39,9 +44,9 @@ const App: React.FC = () => {
             localStorage.removeItem('procap_lastUserId');
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching initial data from Supabase", error);
-        // You could set an error state here to show a message to the user
+        setError("Falha na conexão com o banco de dados. Por favor, recarregue a página e verifique sua conexão com a internet.");
       } finally {
         setIsLoading(false);
       }
@@ -138,7 +143,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
       setCurrentUser(null);
       localStorage.removeItem('procap_lastUserId');
-      setActiveView(communityView);
+      setActiveView(defaultView);
   };
   
   const updateUser = async (updatedUser: User) => {
@@ -159,6 +164,17 @@ const App: React.FC = () => {
     return (
         <div className="w-full h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark">
             <div className="text-xl font-semibold">Carregando dados...</div>
+        </div>
+    );
+  }
+  
+  if (error) {
+    return (
+        <div className="w-full h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark p-4">
+            <div className="text-center bg-card-light dark:bg-card-dark p-8 rounded-lg shadow-lg border border-red-500/50">
+                <h1 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-2">Erro de Conexão</h1>
+                <p className="text-foreground-light dark:text-foreground-dark">{error}</p>
+            </div>
         </div>
     );
   }

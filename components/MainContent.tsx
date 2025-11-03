@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Theme, View, AppData, User, Summary, Flashcard, Question, ChatMessage, Comment, Source, AudioSummary, MindMap, UserMessageVote, UserSourceVote, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../types';
+import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
 import { Header } from './shared/Header';
 
@@ -16,19 +16,6 @@ import { SourcesView } from './views/SourcesView';
 // Fix: Correctly import CaseStudyView from its new file.
 import { CaseStudyView } from './views/CaseStudyView';
 import { CronogramaView } from './views/CronogramaView';
-
-export interface MainContentProps {
-  activeView: View;
-  setActiveView: (view: View) => void;
-  appData: AppData;
-  setAppData: React.Dispatch<React.SetStateAction<AppData>>;
-  currentUser: User;
-  updateUser: (user: User) => void;
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-  processingTasks: {id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[];
-  setProcessingTasks: React.Dispatch<React.SetStateAction<{id: string, name: string, message: string, status: 'processing' | 'success' | 'error'}[]>>;
-}
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme } = props;

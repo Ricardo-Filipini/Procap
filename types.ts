@@ -274,3 +274,23 @@ export interface StarRating {
     contentId: string;
     rating: number; // 1-5
 }
+
+export interface ProcessingTask {
+  id: string;
+  name: string;
+  message: string;
+  status: 'processing' | 'success' | 'error';
+}
+
+export interface MainContentProps {
+  activeView: View;
+  setActiveView: (view: View) => void;
+  appData: AppData;
+  setAppData: React.Dispatch<React.SetStateAction<AppData>>;
+  currentUser: User;
+  updateUser: (user: User) => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+  processingTasks: ProcessingTask[];
+  setProcessingTasks: React.Dispatch<React.SetStateAction<ProcessingTask[]>>;
+}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { MainContentProps } from '../MainContent';
+// Fix: Correct import path for MainContentProps
+import { MainContentProps } from '../../types';
 import { MindMap, Comment, ContentType } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
