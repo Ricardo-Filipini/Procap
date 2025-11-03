@@ -523,10 +523,9 @@ export const NotebookDetailView: React.FC<{
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         // FIX: Replace subtraction in sort with a more robust comparison to avoid potential type errors.
                         groupToSort.sort((a, b) => {
-                            // FIX: Explicitly cast question IDs to strings to prevent type errors.
-                            // FIX: Explicitly cast question ID to string to work around type inference issue.
-                            const orderA = orderMap.get(a.id as string) ?? Infinity;
-                            const orderB = orderMap.get(b.id as string) ?? Infinity;
+                            // FIX: Use String() conversion to prevent type errors when accessing the map.
+                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
+                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
                             if (orderA < orderB) return -1;
                             if (orderA > orderB) return 1;
                             return 0;

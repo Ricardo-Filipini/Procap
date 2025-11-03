@@ -4,7 +4,7 @@ import { Source } from '../../types';
 import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon } from '../Icons';
 import { Modal } from '../Modal';
 import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreContentFromSource, generateMoreMindMapTopicsFromSource } from '../../services/geminiService';
-import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource } from '../../services/supabaseClient';
+import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementVoteCount, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource, addSourceComment } from '../../services/supabaseClient';
 import { supabase } from '../../services/supabaseClient';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import * as mammoth from 'mammoth';
@@ -474,4 +474,158 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 }
             }
         }
+    };
     
+    const sortedSources = useMemo(() => {
+        let sources: Source[] = [...appData.sources];
+        
+        const sortByTemp = (a: Source, b: Source) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes);
+
+        switch (sort) {
+            case 'time':
+                return sources.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            case 'temp':
+                return sources.sort(sortByTemp);
+            case 'subject':
+            case 'user':
+                const groupKey = sort === 'subject' ? 'materia' : 'user_id';
+                const grouped = sources.reduce((acc, s) => {
+                    const key = s[groupKey as keyof Source] as string || (sort === 'subject' ? 'Outros' : 'Desconhecido');
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(s);
+                    return acc;
+                }, {} as Record<string, Source[]>);
+                Object.values(grouped).forEach(group => group.sort(sortByTemp));
+                return grouped;
+            default:
+                return sources;
+        }
+    }, [appData.sources, sort]);
+
+    const renderSourceItem = (source: Source) => {
+        const userVote = appData.userSourceVotes.find(v => v.user_id === currentUser.id && v.source_id === source.id);
+        const author = appData.users.find(u => u.id === source.user_id);
+        const isOwner = currentUser.id === source.user_id || currentUser.pseudonym === 'admin';
+
+        return (
+            <details key={source.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
+                <summary className="cursor-pointer">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h3 className="text-xl font-bold">{source.title}</h3>
+                            <p className="text-sm text-gray-500">
+                                {source.materia} &gt; {source.topic} | por: {author?.pseudonym || 'Desconhecido'}
+                            </p>
+                        </div>
+                         <div className="flex items-center gap-4 relative text-sm">
+                             <div className="flex items-center gap-3 relative">
+                                <button onClick={(e) => { e.preventDefault(); setActiveVote({ sourceId: source.id, type: 'hot' }); }} className="flex items-center gap-1 text-gray-500 hover:text-red-500">
+                                    <span className="text-lg">🔥</span> {source.hot_votes || 0}
+                                </button>
+                                <button onClick={(e) => { e.preventDefault(); setActiveVote({ sourceId: source.id, type: 'cold' }); }} className="flex items-center gap-1 text-gray-500 hover:text-blue-500">
+                                    <span className="text-lg">❄️</span> {source.cold_votes || 0}
+                                </button>
+                                {activeVote?.sourceId === source.id && (
+                                     <div ref={votePopupRef} className="absolute -top-12 -left-2 z-10 bg-black/70 backdrop-blur-sm text-white rounded-full flex items-center p-1 gap-1 shadow-lg">
+                                        <button onClick={(e) => { e.stopPropagation(); handleSourceVote(source.id, activeVote.type, 1); }} className="p-1 hover:bg-white/20 rounded-full"><PlusIcon className="w-4 h-4" /></button>
+                                        <span className="text-sm font-bold w-4 text-center">{activeVote.type === 'hot' ? userVote?.hot_votes || 0 : userVote?.cold_votes || 0}</span>
+                                        <button onClick={(e) => { e.stopPropagation(); handleSourceVote(source.id, activeVote.type, -1); }} className="p-1 hover:bg-white/20 rounded-full"><MinusIcon className="w-4 h-4" /></button>
+                                    </div>
+                                )}
+                            </div>
+                            <button onClick={(e) => { e.preventDefault(); setCommentingOn(source); }} className="text-gray-500 hover:text-primary-light">Comentários ({source.comments?.length || 0})</button>
+                            {isOwner && (
+                                <>
+                                <button onClick={(e) => { e.preventDefault(); setSourceToRename(source); setNewSourceName(source.title); }} title="Renomear" className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"><PencilIcon className="w-4 h-4"/></button>
+                                <button onClick={(e) => { e.preventDefault(); setSourceToDelete(source); }} title="Deletar" className="p-1 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 text-red-500"><TrashIcon className="w-4 h-4"/></button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </summary>
+                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                    <p className="text-sm">{source.summary}</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {(['summaries', 'flashcards', 'questions', 'mind_maps'] as const).map(type => {
+                            const count = source[type]?.length || 0;
+                            const typeNameMap = { summaries: 'Resumos', flashcards: 'Flashcards', questions: 'Questões', mind_maps: 'Mapas' };
+                            const isGeneratingThis = generatingMore?.sourceId === source.id && generatingMore?.type === type;
+                            return (
+                                <div key={type} className="bg-card-light dark:bg-card-dark p-3 rounded-lg border border-border-light dark:border-border-dark flex flex-col justify-between">
+                                    <p className="font-semibold">{typeNameMap[type]}: {count}</p>
+                                    <button onClick={() => handleGenerateMore(source, type)} disabled={isGeneratingThis} className="text-sm text-primary-light dark:text-primary-dark hover:underline mt-2 disabled:opacity-50 flex items-center gap-1">
+                                        {isGeneratingThis ? 'Gerando...' : <><SparklesIcon className="w-4 h-4" /> Explorar</>}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </details>
+        );
+    };
+
+    return (
+        <>
+            <AddSourceModal isOpen={isAddSourceModalOpen} onClose={() => setIsAddSourceModalOpen(false)} onProcess={handleProcessFiles} />
+            {sourceToDelete && <Modal isOpen={true} onClose={() => setSourceToDelete(null)} title="Confirmar Exclusão">
+                <p>Tem certeza que deseja excluir a fonte "{sourceToDelete.title}" e todo o seu conteúdo? Esta ação não pode ser desfeita.</p>
+                <div className="flex justify-end gap-4 mt-4">
+                    <button onClick={() => setSourceToDelete(null)} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                    <button onClick={handleDeleteSource} className="px-4 py-2 rounded-md bg-red-600 text-white">Excluir</button>
+                </div>
+            </Modal>}
+            {sourceToRename && <Modal isOpen={true} onClose={() => setSourceToRename(null)} title="Renomear Fonte">
+                <input type="text" value={newSourceName} onChange={(e) => setNewSourceName(e.target.value)} className="w-full p-2 border rounded-md bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark" />
+                <div className="flex justify-end gap-4 mt-4">
+                    <button onClick={() => setSourceToRename(null)} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                    <button onClick={handleRenameSource} className="px-4 py-2 rounded-md bg-primary-light text-white">Salvar</button>
+                </div>
+            </Modal>}
+            <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} contentTitle={commentingOn?.title || ''}
+                onAddComment={async (text) => {
+                    if (!commentingOn) return;
+                    const newComment = { id: `c_src_${Date.now()}`, authorId: currentUser.id, authorPseudonym: currentUser.pseudonym, text: text, timestamp: new Date().toISOString(), hot_votes: 0, cold_votes: 0 };
+                    const updatedSource = await addSourceComment(commentingOn, newComment);
+                    if(updatedSource) {
+                        setAppData(prev => ({...prev, sources: prev.sources.map(s => s.id === updatedSource.id ? updatedSource : s)}));
+                        setCommentingOn(updatedSource);
+                    }
+                }}
+                onVoteComment={async (commentId, voteType) => {
+                    if (!commentingOn) return;
+                    const updatedComments = commentingOn.comments.map(c => c.id === commentId ? {...c, [`${voteType}_votes`]: c[`${voteType}_votes`] + 1 } : c);
+                    const success = await updateContentComments('sources', commentingOn.id, updatedComments);
+                    if(success) {
+                        const updatedSource = {...commentingOn, comments: updatedComments};
+                        setAppData(prev => ({...prev, sources: prev.sources.map(s => s.id === updatedSource.id ? updatedSource : s)}));
+                        setCommentingOn(updatedSource);
+                    }
+                }}
+            />
+            
+            <div className="flex justify-between items-center mb-6">
+                <ContentToolbar sort={sort} setSort={setSort} supportedSorts={['time', 'temp', 'subject', 'user']} />
+                <button onClick={() => setIsAddSourceModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600">
+                    <DocumentTextIcon className="w-5 h-5" /> Adicionar Fonte
+                </button>
+            </div>
+            
+             <div className="space-y-4">
+                {Array.isArray(sortedSources) 
+                    ? sortedSources.map(renderSourceItem)
+                    : Object.entries(sortedSources as Record<string, Source[]>).map(([groupKey, items]) => (
+                        <div key={groupKey} className="mb-6">
+                            <h2 className="text-2xl font-bold mb-2 border-b-2 border-primary-light dark:border-primary-dark pb-1">
+                                {sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}
+                            </h2>
+                            <div className="space-y-4">
+                                {items.map(renderSourceItem)}
+                            </div>
+                        </div>
+                    ))
+                }
+            </div>
+        </>
+    );
+};
