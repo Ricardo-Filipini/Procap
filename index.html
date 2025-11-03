@@ -174,20 +174,6 @@
 </head>
   <body class="bg-background-light dark:bg-background-dark">
     <div id="root"></div>
-    <script>
-      // --- DYNAMIC MODULE LOADER ---
-      try {
-        const versionMeta = document.querySelector('meta[name="app-version"]');
-        const version = versionMeta ? versionMeta.getAttribute('content') : Date.now();
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = 'index.tsx?v=' + version;
-        // The error handler is now globally defined in the head.
-        script.onerror = showAppLoadErrorScreen;
-        document.body.appendChild(script);
-      } catch (error) {
-        showAppLoadErrorScreen(error);
-      }
-    </script>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
