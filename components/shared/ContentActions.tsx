@@ -20,10 +20,11 @@ export const ContentActions: React.FC<{
     const isContentInteraction = (i: any): i is UserContentInteraction => 'content_type' in i;
 
     const interaction = interactions.find(i => {
-        if (contentType === 'question' || isContentInteraction(i)) {
-            return (i as UserContentInteraction).content_id === item.id;
+        if (isContentInteraction(i)) {
+            return i.user_id === currentUser.id && i.content_id === item.id && i.content_type === contentType;
+        } else {
+            return i.user_id === currentUser.id && (i as UserNotebookInteraction).notebook_id === item.id;
         }
-        return (i as UserNotebookInteraction).notebook_id === item.id;
     });
 
     useEffect(() => {

@@ -479,7 +479,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
     };
     
     const sortedSources = useMemo(() => {
-        let sources: Source[] = [...appData.sources];
+        let sources: Source[] = [...appData.sources].filter(s => s.materia !== 'Mídia');
         
         const sortByTemp = (a: Source, b: Source) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes);
 
