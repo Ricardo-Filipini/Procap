@@ -568,12 +568,11 @@ export const NotebookDetailView: React.FC<{
                         const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         // FIX: Replace subtraction in sort with a more robust comparison to avoid potential type errors.
-                        groupToSort.sort((a, b) => {
+                        // FIX: Explicitly type `a` and `b` to `Question` to resolve type inference issues.
+                        groupToSort.sort((a: Question, b: Question) => {
                             // FIX: Use String() conversion to prevent type errors when accessing the map.
-// FIX: Cast `a` and `b` to `Question` to resolve type inference issues, ensuring `.id` is correctly treated as a string.
-                            const orderA = orderMap.get(String((a as Question).id)) ?? Infinity;
-// FIX: Cast `a` and `b` to `Question` to resolve type inference issues, ensuring `.id` is correctly treated as a string.
-                            const orderB = orderMap.get(String((b as Question).id)) ?? Infinity;
+                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
+                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
                             if (orderA < orderB) return -1;
                             if (orderA > orderB) return 1;
                             return 0;
