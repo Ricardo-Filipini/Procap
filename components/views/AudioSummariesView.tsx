@@ -124,6 +124,17 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
         processedItems, handleAiFilter, handleClearFilter,
     } = useContentViewController(allItems, currentUser, appData, contentType);
 
+    const handleMediaPlay = (audioSummary: AudioSummary) => {
+        const interaction = appData.userContentInteractions.find(
+            i => i.user_id === currentUser.id && i.content_id === audioSummary.id && i.content_type === contentType
+        );
+        const isAlreadyRead = interaction?.is_read || false;
+
+        if (!isAlreadyRead) {
+            handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, audioSummary.id, { is_read: true });
+        }
+    };
+
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
         if (!commentingOn) return;
         let updatedComments = [...(commentingOn.comments || [])];
@@ -169,12 +180,12 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
             <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
             {mediaUrl ? (
                 mediaUrl.toLowerCase().includes('.mp4') ? (
-                    <video controls className="w-full rounded-md max-h-72">
+                    <video controls className="w-full rounded-md max-h-72" onPlay={() => handleMediaPlay(audio)}>
                         <source src={mediaUrl} type="video/mp4" />
                         Seu navegador não suporta o elemento de vídeo.
                     </video>
                 ) : (
-                    <audio controls className="w-full">
+                    <audio controls className="w-full" onPlay={() => handleMediaPlay(audio)}>
                         <source src={mediaUrl} type="audio/mpeg" />
                         Seu navegador não suporta este elemento de áudio.
                     </audio>

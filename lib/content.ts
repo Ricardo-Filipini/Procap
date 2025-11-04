@@ -21,7 +21,20 @@ export const handleInteractionUpdate = async (
     let xpGained = 0;
     // Grant XP if an item is being marked as read for the first time
     if (update.is_read && !wasRead) {
-        xpGained += 1;
+        switch (contentType) {
+            case 'flashcard':
+                xpGained += 3;
+                break;
+            case 'summary':
+                xpGained += 5;
+                break;
+            case 'audio_summary':
+                xpGained += 25;
+                break;
+            default:
+                xpGained += 1; // Manter padrão para outros tipos
+                break;
+        }
     }
 
     // Optimistic UI update
