@@ -285,23 +285,96 @@ interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'current
 }
 
 export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate }) => {
-    const sortedUsers = [...appData.users].sort((a, b) => b.xp - a.xp);
+    const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
+
+    const filteredLeaderboard = useMemo(() => {
+        const now = new Date();
+
+        if (leaderboardFilter === 'geral') {
+            return [...appData.users].sort((a, b) => b.xp - a.xp);
+        }
+
+        let startTime: Date;
+
+        switch (leaderboardFilter) {
+            case 'diaria':
+                startTime = new Date(now);
+                startTime.setHours(0, 0, 0, 0);
+                break;
+            case 'periodo':
+                startTime = new Date(now);
+                if (now.getHours() < 12) {
+                    startTime.setHours(0, 0, 0, 0);
+                } else {
+                    startTime.setHours(12, 0, 0, 0);
+                }
+                break;
+            case 'hora':
+                startTime = new Date(now.getTime() - 60 * 60 * 1000);
+                break;
+        }
+
+        const userXpInPeriod = appData.users.map(user => {
+            const questionsXp = appData.userQuestionAnswers
+                .filter(a => a.user_id === user.id && new Date(a.timestamp) >= startTime)
+                .reduce((sum, a) => sum + (a.xp_awarded || 0), 0);
+
+            const caseStudiesXp = appData.userCaseStudyInteractions
+                .filter(i => i.user_id === user.id && i.completed_at && new Date(i.completed_at) >= startTime)
+                .reduce((sum, i) => sum + (i.xp_earned || 0), 0);
+            
+            return {
+                ...user,
+                xp: questionsXp + caseStudiesXp,
+            };
+        });
+
+        return userXpInPeriod
+            .filter(user => user.xp > 0)
+            .sort((a, b) => b.xp - a.xp);
+
+    }, [appData.users, appData.userQuestionAnswers, appData.userCaseStudyInteractions, leaderboardFilter]);
+    
+    const filterOptions = [
+        { key: 'geral', emoji: '🌍', title: 'Geral' },
+        { key: 'diaria', emoji: '📅', title: 'Diária' },
+        { key: 'periodo', emoji: '🌓', title: 'Período Atual' },
+        { key: 'hora', emoji: '⏱️', title: 'Última Hora' },
+    ];
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-11rem)]">
             <div className="lg:col-span-1 flex flex-col">
-                <h3 className="text-2xl font-bold mb-4 flex-shrink-0">Leaderboard</h3>
+                 <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-2xl font-bold flex-shrink-0">Leaderboard</h3>
+                    <div className="flex items-center gap-1">
+                        {filterOptions.map(opt => (
+                            <button
+                                key={opt.key}
+                                title={opt.title}
+                                onClick={() => setLeaderboardFilter(opt.key as any)}
+                                className={`p-2 rounded-full text-xl transition-colors ${leaderboardFilter === opt.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                            >
+                                {opt.emoji}
+                            </button>
+                        ))}
+                    </div>
+                </div>
                 <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto max-h-64 lg:max-h-full">
                     <ul className="space-y-3">
-                        {sortedUsers.map((user, index) => (
+                        {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                             <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
-                                <div className="flex items-center">
-                                    <span className="font-bold text-lg w-8">{index + 1}.</span>
-                                    <span className="font-semibold">{user.pseudonym}</span>
+                                <div className="flex items-center min-w-0">
+                                    <span className="font-bold text-lg w-10 text-right pr-2 flex-shrink-0">{index + 1}.</span>
+                                    <span className="font-semibold truncate">{user.pseudonym}</span>
                                 </div>
-                                <span className="font-bold text-primary-light dark:text-primary-dark">{user.xp} XP</span>
+                                <span className="font-bold text-primary-light dark:text-primary-dark ml-2 flex-shrink-0">{user.xp} XP</span>
                             </li>
-                        ))}
+                        )) : (
+                            <div className="text-center text-gray-500 py-8">
+                                Nenhum dado para este período.
+                            </div>
+                        )}
                     </ul>
                 </div>
             </div>
