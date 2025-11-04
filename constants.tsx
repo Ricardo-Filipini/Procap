@@ -8,11 +8,11 @@ export const VIEWS: View[] = [
     { name: 'Flashcards', icon: SparklesIcon },
     { name: 'Resumos', icon: BookOpenIcon },
     { name: 'Mapas Mentais', icon: ShareIcon },
-    { name: 'Fontes', icon: CloudArrowUpIcon },
-    { name: 'Comunidade', icon: UsersIcon},
-    { name: 'Cronograma', icon: CalendarDaysIcon },
-    { name: 'Estudo de Caso', icon: DocumentTextIcon },
     { name: 'Perfil', icon: UserCircleIcon },
+    { name: 'Comunidade', icon: UsersIcon},
+    { name: 'Estudo de Caso', icon: DocumentTextIcon },
+    { name: 'Fontes', icon: CloudArrowUpIcon },
+    { name: 'Cronograma', icon: CalendarDaysIcon },
     { name: 'Admin', icon: ShieldCheckIcon, adminOnly: true },
 ];
 

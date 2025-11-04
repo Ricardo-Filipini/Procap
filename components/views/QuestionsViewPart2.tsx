@@ -564,11 +564,10 @@ export const NotebookDetailView: React.FC<{
                         // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
                         const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Explicitly type `a` and `b` to resolve issues where TypeScript inferred their type as `unknown`.
+                        // FIX: The type of `a` and `b` was not being correctly inferred. Adding explicit types and removing the unnecessary `String()` conversion resolves the issue.
                         groupToSort.sort((a: Question, b: Question) => {
-                            // Use String() conversion as a safeguard in case an ID is not a string.
-                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
-                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
+                            const orderA = orderMap.get(a.id) ?? Infinity;
+                            const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;
                             if (orderA > orderB) return 1;
                             return 0;
