@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent } from '../types';
+import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan } from '../types';
 
 /*
 -- =================================================================
@@ -140,7 +140,7 @@ const checkSupabase = () => {
 }
 
 export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
-    const emptyData: AppData = { users: [], sources: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
+    const emptyData: AppData = { users: [], sources: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
     if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
@@ -169,6 +169,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             questionNotebooks,
             caseStudies,
             scheduleEvents,
+            studyPlans,
             userMessageVotes,
             userSourceVotes,
             userContentInteractions,
@@ -187,6 +188,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             fetchTable('question_notebooks', { column: 'created_at', options: { ascending: false } }),
             fetchTable('case_studies', { column: 'created_at', options: { ascending: false } }),
             fetchTable('schedule_events', { column: 'date', options: { ascending: true } }),
+            fetchTable('study_plans', { column: 'created_at', options: { ascending: false } }),
             fetchTable('user_message_votes'),
             fetchTable('user_source_votes'),
             fetchTable('user_content_interactions'),
@@ -220,6 +222,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             questionNotebooks,
             caseStudies,
             scheduleEvents,
+            studyPlans,
             userMessageVotes,
             userSourceVotes,
             userContentInteractions,
@@ -515,5 +518,15 @@ export const upsertUserContentInteraction = async (payload: Partial<UserContentI
     if(!checkSupabase()) return null;
     const { data, error } = await supabase!.from('user_content_interactions').upsert(payload, { onConflict: 'user_id,content_id,content_type'}).select().single();
     if(error) { console.error("Error upserting content interaction:", error); return null; }
+    return data;
+};
+
+export const addStudyPlan = async (payload: Omit<StudyPlan, 'id' | 'created_at'>): Promise<StudyPlan | null> => {
+    if (!checkSupabase()) return null;
+    const { data, error } = await supabase!.from('study_plans').insert(payload).select().single();
+    if (error) {
+        console.error("Error adding study plan:", error);
+        return null;
+    }
     return data;
 };

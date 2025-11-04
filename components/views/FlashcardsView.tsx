@@ -11,29 +11,43 @@ import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } f
 import { updateContentComments } from '../../services/supabaseClient';
 
 interface FlashcardsViewProps extends MainContentProps {
-    allItems: (Flashcard & { user_id: string, created_at: string})[];
-    filterTerm: string | null;
-    clearFilter: () => void;
+    allItems: (Flashcard & { user_id: string, created_at: string, source: any})[];
+    navTarget: { term: string, id: string } | null;
+    clearNavTarget: () => void;
 }
 
-export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, filterTerm, clearFilter }) => {
+export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [flipped, setFlipped] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Flashcard | null>(null);
     const [fontSize, setFontSize] = useState(1);
     const contentType: ContentType = 'flashcard';
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+    const handleToggleGroup = (groupKey: string) => {
+        setOpenGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(groupKey)) {
+                next.delete(groupKey);
+            } else {
+                next.add(groupKey);
+            }
+            return next;
+        });
+    };
 
     useEffect(() => {
-        if (filterTerm) {
-             const foundItem = allItems.find(item => item.front.toLowerCase().includes(filterTerm.toLowerCase()));
-             if(foundItem) {
+        if (navTarget?.id) {
+             const item = allItems.find(i => i.id === navTarget.id);
+             if(item?.source) {
+                setOpenGroups(prev => new Set(prev).add(item.source.title));
                 setTimeout(() => {
-                    const element = document.getElementById(`flashcard-${foundItem.id}`);
+                    const element = document.getElementById(`flashcard-${item.id}`);
                     element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 100);
+                }, 300);
              }
-            clearFilter();
+            clearNavTarget();
         }
-    }, [filterTerm, clearFilter, allItems]);
+    }, [navTarget, allItems, clearNavTarget]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -124,7 +138,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
-                            <details key={groupKey} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                            <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
                                  <summary className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                                 <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                    {renderItems(items)}

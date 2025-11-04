@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { MainContentProps } from '../../types';
+import { MainContentProps, StudyPlan } from '../../types';
 import { User } from '../../types';
 import { UserCircleIcon, SparklesIcon } from '../Icons';
 import { getPersonalizedStudyPlan } from '../../services/geminiService';
 import { FontSizeControl, FONT_SIZE_CLASSES_LARGE } from '../shared/FontSizeControl';
+import { addStudyPlan } from '../../services/supabaseClient';
 
 interface ProfileViewProps extends Pick<MainContentProps, 'currentUser' | 'appData' | 'setAppData' | 'updateUser'> {
-  onNavigate: (viewName: string, term: string) => void;
+  onNavigate: (viewName: string, term: string, id: string) => void;
 }
 
 const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => {
@@ -81,30 +82,45 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
     }, [appData.userQuestionAnswers, appData.questionNotebooks, user.id]);
 
     
-    const [studyPlan, setStudyPlan] = useState("");
     const [loadingPlan, setLoadingPlan] = useState(false);
     const [fontSize, setFontSize] = useState(0);
     
+    const userPlans = useMemo(() => {
+        return appData.studyPlans.filter(p => p.user_id === user.id);
+    }, [appData.studyPlans, user.id]);
+    
+    const [currentPlanIndex, setCurrentPlanIndex] = useState(0);
+    const currentPlan = userPlans[currentPlanIndex];
+
     const handleGeneratePlan = async () => {
         setLoadingPlan(true);
         const allSummaries = appData.sources.flatMap(s => s.summaries);
         const allFlashcards = appData.sources.flatMap(s => s.flashcards);
+        const allMedias = appData.sources.flatMap(s => s.audio_summaries);
         
         const content = {
             summaries: allSummaries,
             flashcards: allFlashcards,
-            notebooks: appData.questionNotebooks
+            notebooks: appData.questionNotebooks,
+            medias: allMedias
         };
 
-        const plan = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
-        setStudyPlan(plan);
+        const planContent = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
+        const newPlan = await addStudyPlan({ user_id: user.id, content: planContent });
+
+        if (newPlan) {
+            setAppData(prev => ({ ...prev, studyPlans: [newPlan, ...prev.studyPlans] }));
+            setCurrentPlanIndex(0); // Show the newest plan
+        } else {
+            alert("Falha ao salvar o novo plano de estudos.");
+        }
         setLoadingPlan(false);
     }
     
     const parseAndRenderMessage = (text: string) => {
         const parts: (string | React.ReactElement)[] = [];
         let lastIndex = 0;
-        const regex = /(\#\[[^\]]+\])|(\!\[[^\]]+\])|(\?\[[^\]]+\])/g;
+        const regex = /(\#\[[^\]]+\])|(\!\[[^\]]+\])|(\?\[[^\]]+\])|(@\[[^\]]+\])/g;
         let match;
 
         while ((match = regex.exec(text)) !== null) {
@@ -115,16 +131,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
             const fullMatch = match[0];
             const term = fullMatch.substring(2, fullMatch.length - 1);
             let viewName = '';
+            let itemId = '';
 
-            if (fullMatch.startsWith('#[')) viewName = 'Resumos';
-            else if (fullMatch.startsWith('![')) viewName = 'Flashcards';
-            else if (fullMatch.startsWith('?[')) viewName = 'Questões';
+            if (fullMatch.startsWith('#[')) {
+                viewName = 'Resumos';
+                const item = appData.sources.flatMap(s => s.summaries).find(s => s.title === term);
+                if (item) itemId = item.id;
+            } else if (fullMatch.startsWith('![')) {
+                viewName = 'Flashcards';
+                const item = appData.sources.flatMap(s => s.flashcards).find(f => f.front === term);
+                if (item) itemId = item.id;
+            } else if (fullMatch.startsWith('?[')) {
+                viewName = 'Questões';
+                const item = appData.questionNotebooks.find(n => n.name === term);
+                if (item) itemId = item.id;
+            } else if (fullMatch.startsWith('@[')) {
+                viewName = 'Mídia';
+                const item = appData.sources.flatMap(s => s.audio_summaries).find(m => m.title === term);
+                if (item) itemId = item.id;
+            }
             
             parts.push(
                 <span
                     key={match.index}
                     className="text-blue-500 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
-                    onClick={() => onNavigate(viewName, term)}
+                    onClick={() => { if (itemId) onNavigate(viewName, term, itemId); }}
                 >
                     {term}
                 </span>
@@ -159,7 +190,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                             <SparklesIcon className="w-5 h-5"/> {loadingPlan ? 'Gerando...' : 'Gerar/Atualizar Plano'}
                             </button>
                         </div>
-                        {studyPlan ? parseAndRenderMessage(studyPlan) : <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>}
+                        {currentPlan ? (
+                            <div>
+                                <div className="flex justify-between items-center mb-2 text-sm text-gray-500 dark:text-gray-400">
+                                    <button onClick={() => setCurrentPlanIndex(i => i + 1)} disabled={currentPlanIndex >= userPlans.length - 1} className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 disabled:opacity-50 font-semibold hover:bg-gray-300 dark:hover:bg-gray-600">&larr; Anterior</button>
+                                    <span>Plano de {new Date(currentPlan.created_at).toLocaleString('pt-BR')} ({currentPlanIndex + 1}/{userPlans.length})</span>
+                                    <button onClick={() => setCurrentPlanIndex(i => i - 1)} disabled={currentPlanIndex <= 0} className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 disabled:opacity-50 font-semibold hover:bg-gray-300 dark:hover:bg-gray-600">Próximo &rarr;</button>
+                                </div>
+                                {parseAndRenderMessage(currentPlan.content)}
+                            </div>
+                        ) : (
+                            <p className="text-gray-500 dark:text-gray-400">Clique no botão para que a IA gere um plano de estudos com base em seu desempenho e interações.</p>
+                        )}
                     </div>
 
                     {/* PERFORMANCE STATS */}

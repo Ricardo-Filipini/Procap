@@ -61,31 +61,46 @@ const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
 }
 
 interface SummariesViewProps extends MainContentProps {
-    allItems: (Summary & { user_id: string, created_at: string})[];
-    filterTerm: string | null;
-    clearFilter: () => void;
+    allItems: (Summary & { user_id: string, created_at: string, source: any})[];
+    navTarget: { term: string, id: string } | null;
+    clearNavTarget: () => void;
 }
 
-export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, filterTerm, clearFilter }) => {
+export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
     const contentType: ContentType = 'summary';
     const [fontSize, setFontSize] = useState(1);
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+    const handleToggleGroup = (groupKey: string) => {
+        setOpenGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(groupKey)) {
+                next.delete(groupKey);
+            } else {
+                next.add(groupKey);
+            }
+            return next;
+        });
+    };
 
     useEffect(() => {
-        if (filterTerm) {
-            const foundItem = allItems.find(item => item.title.toLowerCase().includes(filterTerm.toLowerCase()));
-            if (foundItem) {
-                setExpanded(foundItem.id);
-                 // Scroll to item
+        if (navTarget?.id) {
+            const item = allItems.find(i => i.id === navTarget.id);
+            if (item?.source) {
+                // Expand the parent group
+                setOpenGroups(prev => new Set(prev).add(item.source.title));
+
+                // Scroll to item
                 setTimeout(() => {
-                    const element = document.getElementById(`summary-${foundItem.id}`);
+                    const element = document.getElementById(`summary-${item.id}`);
                     element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 100);
+                }, 300); // Timeout to allow <details> to open
             }
-            clearFilter();
+            clearNavTarget();
         }
-    }, [filterTerm, clearFilter, allItems]);
+    }, [navTarget, allItems, clearNavTarget]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -174,7 +189,7 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
-                            <details key={groupKey} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                            <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
                                 <summary className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>
                                     {sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}
                                 </summary>

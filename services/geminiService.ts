@@ -238,7 +238,7 @@ export const generateImageForMindMap = async (prompt: string): Promise<{ base64I
 export const getPersonalizedStudyPlan = async (
     userStats: any, 
     interactions: UserContentInteraction[],
-    content: {summaries: any[], flashcards: any[], notebooks: any[]}
+    content: {summaries: any[], flashcards: any[], notebooks: any[], medias: any[]}
     ): Promise<string> => {
     if (!API_KEY) {
         return "A funcionalidade da IA está desabilitada. Configure a API Key.";
@@ -254,20 +254,23 @@ export const getPersonalizedStudyPlan = async (
         - **Estatísticas de Desempenho (Questões):** ${JSON.stringify(userStats)}
         - **Itens Favoritados:** ${JSON.stringify(favorites)}
         - **Itens Lidos:** ${JSON.stringify(read)}
-        - **Conteúdo Disponível (com temperatura = hot_votes - cold_votes):** 
+        - **Conteúdo Disponível (com temp = popularidade (votos positivos - votos negativos)):** 
           - Resumos: ${JSON.stringify(content.summaries.map(s => ({id: s.id, title: s.title, topic: s.source?.topic, temp: (s.hot_votes || 0) - (s.cold_votes || 0) })))}
           - Flashcards: ${JSON.stringify(content.flashcards.map(f => ({id: f.id, front: f.front, topic: f.source?.topic, temp: (f.hot_votes || 0) - (f.cold_votes || 0) })))}
           - Cadernos: ${JSON.stringify(content.notebooks.map(n => ({id: n.id, name: n.name, temp: (n.hot_votes || 0) - (n.cold_votes || 0) })))}
+          - Mídias (áudios/vídeos): ${JSON.stringify(content.medias.map(m => ({id: m.id, title: m.title, topic: m.source?.topic, temp: (m.hot_votes || 0) - (m.cold_votes || 0) })))}
 
         **Instruções para o Plano:**
         1.  **Foco Principal:** Identifique os tópicos com o menor percentual de acerto e priorize-os.
-        2.  **Sugestões de Revisão:** Sugira a revisão de resumos e flashcards, especialmente os que foram favoritados ou que pertencem a tópicos de baixo desempenho. Dê preferência a materiais bem avaliados pela comunidade (alta temperatura).
-        3.  **Sugestões de Prática:** Recomende a prática com cadernos de questões que cobrem as áreas de maior dificuldade e que sejam bem avaliados.
-        4.  **Formato OBRIGATÓRIO:** Formate a resposta em markdown. Use a seguinte sintaxe para criar links DIRETAMENTE para o conteúdo na plataforma:
+        2.  **Sugestões de Revisão:** Sugira a revisão de resumos e flashcards, especialmente os que foram favoritados ou que pertencem a tópicos de baixo desempenho. Dê preferência a materiais bem avaliados pela comunidade (alta "temp" - popularidade).
+        3.  **Sugestões de Mídia:** Recomende mídias (áudios/vídeos) como um bom ponto de partida para tópicos onde o estudante tem mais dificuldade.
+        4.  **Sugestões de Prática:** Recomende a prática com cadernos de questões que cobrem as áreas de maior dificuldade e que sejam bem avaliados.
+        5.  **Formato OBRIGATÓRIO:** Formate a resposta em markdown. Use a seguinte sintaxe para criar links DIRETAMENTE para o conteúdo na plataforma:
             - Para Resumos: \`#[nome do resumo]\`
             - Para Flashcards: \`![frente do flashcard]\`
             - Para Cadernos de Questões: \`?[nome do caderno]\`
-        5.  **Tom:** Seja encorajador, direto e prático. O objetivo é fornecer um guia claro para os próximos passos do estudante.
+            - Para Mídias: \`@[nome da mídia]\`
+        6.  **Tom:** Seja encorajador, direto e prático. O objetivo é fornecer um guia claro para os próximos passos do estudante.
 
         Crie o plano de estudos agora.
     `;

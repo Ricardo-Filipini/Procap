@@ -109,14 +109,40 @@ const AddMediaModal: React.FC<{
 
 
 interface AudioSummariesViewProps extends MainContentProps {
-    allItems: (AudioSummary & { user_id: string, created_at: string})[];
+    allItems: (AudioSummary & { user_id: string, created_at: string, source: any})[];
+    navTarget: { term: string, id: string } | null;
+    clearNavTarget: () => void;
 }
 
-export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser }) => {
+export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [commentingOn, setCommentingOn] = useState<(AudioSummary & { user_id: string, created_at: string}) | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'audio_summary';
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+     const handleToggleGroup = (groupKey: string) => {
+        setOpenGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(groupKey)) next.delete(groupKey);
+            else next.add(groupKey);
+            return next;
+        });
+    };
+
+    useEffect(() => {
+        if (navTarget?.id) {
+            const item = allItems.find(i => i.id === navTarget.id);
+            if (item?.source) {
+                setOpenGroups(prev => new Set(prev).add(item.source.title));
+                setTimeout(() => {
+                    const element = document.getElementById(`media-${item.id}`);
+                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 300);
+            }
+            clearNavTarget();
+        }
+    }, [navTarget, allItems, clearNavTarget]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -175,7 +201,7 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
         }
 
         return (
-        <div key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
+        <div id={`media-${audio.id}`} key={audio.id} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
             <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{audio.title}</h3>
             <p className="text-xs text-gray-500 mb-4">Upload por {authorName} em {formattedDate}</p>
             {mediaUrl ? (
@@ -223,7 +249,7 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
                 {Array.isArray(processedItems) 
                     ? processedItems.map(renderItem)
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => (
-                        <details key={groupKey} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                        <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
                              <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                             <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                 {items.map(renderItem)}

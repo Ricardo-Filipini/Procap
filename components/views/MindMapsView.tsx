@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // Fix: Correct import path for MainContentProps
 import { MainContentProps } from '../../types';
 import { MindMap, Comment, ContentType } from '../../types';
@@ -11,13 +11,39 @@ import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 import { updateContentComments } from '../../services/supabaseClient';
 
 interface MindMapsViewProps extends MainContentProps {
-    allItems: (MindMap & { user_id: string, created_at: string})[];
+    allItems: (MindMap & { user_id: string, created_at: string, source: any})[];
+    navTarget: { term: string, id: string } | null;
+    clearNavTarget: () => void;
 }
 
-export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser }) => {
+export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [commentingOn, setCommentingOn] = useState<MindMap | null>(null);
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'mind_map';
+    const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+    const handleToggleGroup = (groupKey: string) => {
+        setOpenGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(groupKey)) next.delete(groupKey);
+            else next.add(groupKey);
+            return next;
+        });
+    };
+
+    useEffect(() => {
+        if (navTarget?.id) {
+            const item = allItems.find(i => i.id === navTarget.id);
+            if (item?.source) {
+                setOpenGroups(prev => new Set(prev).add(item.source.title));
+                setTimeout(() => {
+                    const element = document.getElementById(`mindmap-${item.id}`);
+                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 300);
+            }
+            clearNavTarget();
+        }
+    }, [navTarget, allItems, clearNavTarget]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -50,7 +76,7 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
     const renderItems = (items: any[]) => (
          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {items.map(map => (
-                <div key={map.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                <div id={`mindmap-${map.id}`} key={map.id} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
                     <h3 className={`text-xl font-bold mb-2 ${FONT_SIZE_CLASSES[fontSize]}`}>{map.title}</h3>
                      <p className="text-xs text-gray-500 mb-4">Fonte: {map.source?.title}</p>
                     <img src={map.imageUrl} alt={map.title} className="w-full h-auto rounded-md border border-border-light dark:border-border-dark"/>
@@ -77,7 +103,7 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
-                            <details key={groupKey} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                            <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
                                 <summary className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                                 <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                     {renderItems(items)}

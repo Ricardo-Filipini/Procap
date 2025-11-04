@@ -19,12 +19,12 @@ import { CronogramaView } from './views/CronogramaView';
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme } = props;
-  const [chatFilter, setChatFilter] = useState<{viewName: string, term: string} | null>(null);
+  const [navTarget, setNavTarget] = useState<{viewName: string, term: string, id?: string} | null>(null);
 
-  const handleChatNavigation = (viewName: string, term: string) => {
+  const handleNavigation = (viewName: string, term: string, id?: string) => {
     const targetView = VIEWS.find(v => v.name === viewName);
     if (targetView) {
-      setChatFilter({ viewName, term });
+      setNavTarget({ viewName, term, id });
       setActiveView(targetView);
     }
   };
@@ -36,13 +36,13 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
   const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
 
   const renderContent = () => {
-    const currentFilter = chatFilter && chatFilter.viewName === activeView.name ? chatFilter.term : null;
-    const clearFilter = () => setChatFilter(null);
+    const currentNavTarget = navTarget && navTarget.viewName === activeView.name ? { term: navTarget.term, id: navTarget.id! } : null;
+    const clearNavTarget = () => setNavTarget(null);
 
     const viewProps = {
       ...props,
-      filterTerm: currentFilter,
-      clearFilter: clearFilter,
+      navTarget: currentNavTarget,
+      clearNavTarget: clearNavTarget,
     };
 
     switch (activeView.name) {
@@ -51,7 +51,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Flashcards':
         return <FlashcardsView {...viewProps} allItems={allFlashcards} />;
       case 'Questões':
-        return <QuestionsView {...viewProps} allItems={allQuestions} />;
+        return <QuestionsView {...props} navTarget={currentNavTarget} clearNavTarget={clearNavTarget} allItems={allQuestions} />;
       case 'Mapas Mentais':
           return <MindMapsView {...viewProps} allItems={allMindMaps} />;
       case 'Mídia':
@@ -61,9 +61,9 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Cronograma':
           return <CronogramaView {...props} />;
       case 'Comunidade':
-          return <CommunityView {...props} onNavigate={handleChatNavigation}/>;
+          return <CommunityView {...props} onNavigate={handleNavigation}/>;
       case 'Perfil':
-          return <ProfileView {...props} onNavigate={handleChatNavigation} />;
+          return <ProfileView {...props} onNavigate={handleNavigation} />;
       case 'Admin':
           return <AdminView {...props} />;
       case 'Fontes':

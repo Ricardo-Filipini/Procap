@@ -255,6 +255,13 @@ export interface ScheduleEvent {
   comments: Comment[];
 }
 
+export interface StudyPlan {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
 export interface AppData {
   users: User[];
   sources: Source[];
@@ -262,6 +269,7 @@ export interface AppData {
   questionNotebooks: QuestionNotebook[];
   caseStudies: CaseStudy[];
   scheduleEvents: ScheduleEvent[];
+  studyPlans: StudyPlan[];
   userMessageVotes: UserMessageVote[];
   userSourceVotes: UserSourceVote[];
   userContentInteractions: UserContentInteraction[];
