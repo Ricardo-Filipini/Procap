@@ -338,8 +338,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
     const filterOptions = [
         { key: 'geral', emoji: '🌍', title: 'Geral' },
         { key: 'diaria', emoji: '📅', title: 'Diária' },
-        { key: 'periodo', emoji: '🌓', title: 'Período Atual' },
-        { key: 'hora', emoji: '⏱️', title: 'Última Hora' },
+        { key: 'periodo', emoji: '🌓', title: 'Período' },
+        { key: 'hora', emoji: '⏱️', title: 'Hora' },
     ];
 
     return (
@@ -347,16 +347,24 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
             <div className="lg:col-span-1 flex flex-col">
                  <div className="flex justify-between items-center mb-4">
                     <h3 className="text-2xl font-bold flex-shrink-0">Leaderboard</h3>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-end gap-1" style={{ minHeight: '4rem' }}>
                         {filterOptions.map(opt => (
-                            <button
-                                key={opt.key}
-                                title={opt.title}
-                                onClick={() => setLeaderboardFilter(opt.key as any)}
-                                className={`p-2 rounded-full text-xl transition-colors ${leaderboardFilter === opt.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                            >
-                                {opt.emoji}
-                            </button>
+                             <div key={opt.key} className="flex flex-col items-center justify-start text-center w-12">
+                                <button
+                                    title={opt.title}
+                                    onClick={() => setLeaderboardFilter(opt.key as any)}
+                                    className={`p-2 rounded-full text-xl transition-colors ${leaderboardFilter === opt.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                >
+                                    {opt.emoji}
+                                </button>
+                                <div className="h-5 mt-1">
+                                    {leaderboardFilter === opt.key && (
+                                        <span className="text-xs font-semibold text-primary-light dark:text-primary-dark">
+                                            {opt.title}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -365,7 +373,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                         {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                             <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
                                 <div className="flex items-center min-w-0">
-                                    <span className="font-bold text-lg w-10 text-right pr-2 flex-shrink-0">{index + 1}.</span>
+                                    <span className="font-bold text-lg w-14 text-right pr-4 flex-shrink-0">{index + 1}.</span>
                                     <span className="font-semibold truncate">{user.pseudonym}</span>
                                 </div>
                                 <span className="font-bold text-primary-light dark:text-primary-dark ml-2 flex-shrink-0">{user.xp} XP</span>
