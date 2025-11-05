@@ -3,7 +3,7 @@ import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 // FIX: Replaced incrementVoteCount with incrementMessageVote for type safety and correctness.
-import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
+import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
 import { getSimpleChatResponse } from '../../services/geminiService';
 
 const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>; onNavigate: (viewName: string, term: string) => void;}> = ({currentUser, appData, setAppData, onNavigate}) => {
@@ -130,6 +130,9 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
             const updatedAuthor = { ...author, xp: author.xp + xpChange };
             const result = await supabaseUpdateUser(updatedAuthor);
             if (result) {
+                logXpEvent(author.id, xpChange, 'CHAT_VOTE_RECEIVED', messageId).then(newEvent => {
+                    if (newEvent) setAppData(prev => ({...prev, xp_events: [...prev.xp_events, newEvent]}));
+                });
                 setAppData(prev => ({
                     ...prev,
                     users: prev.users.map(u => u.id === result.id ? result : u),
@@ -313,19 +316,22 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 startTime = new Date(now.getTime() - 60 * 60 * 1000);
                 break;
         }
+        
+        const xpEventsInPeriod = appData.xp_events.filter(
+            event => new Date(event.created_at) >= startTime
+        );
+        
+        const userXpMap = new Map<string, number>();
+
+        xpEventsInPeriod.forEach(event => {
+            const currentXp = userXpMap.get(event.user_id) || 0;
+            userXpMap.set(event.user_id, currentXp + event.amount);
+        });
 
         const userXpInPeriod = appData.users.map(user => {
-            const questionsXp = appData.userQuestionAnswers
-                .filter(a => a.user_id === user.id && new Date(a.timestamp) >= startTime)
-                .reduce((sum, a) => sum + (a.xp_awarded || 0), 0);
-
-            const caseStudiesXp = appData.userCaseStudyInteractions
-                .filter(i => i.user_id === user.id && i.completed_at && new Date(i.completed_at) >= startTime)
-                .reduce((sum, i) => sum + (i.xp_earned || 0), 0);
-            
             return {
                 ...user,
-                xp: questionsXp + caseStudiesXp,
+                xp: userXpMap.get(user.id) || 0,
             };
         });
 
@@ -333,7 +339,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
             .filter(user => user.xp > 0)
             .sort((a, b) => b.xp - a.xp);
 
-    }, [appData.users, appData.userQuestionAnswers, appData.userCaseStudyInteractions, leaderboardFilter]);
+    }, [appData.users, appData.xp_events, leaderboardFilter]);
     
     const filterOptions = [
         { key: 'geral', emoji: '🌍', title: 'Geral' },

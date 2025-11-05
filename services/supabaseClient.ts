@@ -1,9 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile } from '../types';
+import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile, XpEvent } from '../types';
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.6) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.7) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -15,22 +15,18 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 -- 4. COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 -- 5. Clique em "RUN".
 --
--- O QUE HÁ DE NOVO (v5.6):
---   - DIAGNÓSTICO: O erro de upload persistia porque a aplicação usa um sistema de
---     autenticação próprio, e não o sistema nativo do Supabase. Como resultado,
---     as políticas de segurança do Storage não reconheciam o usuário como "autenticado",
---     causando a falha de permissão.
---   - SOLUÇÃO: A política de segurança do Storage (bucket 'sources') foi
---     drasticamente simplificada. Agora, ela permite que qualquer pessoa
---     (role 'anon') realize uploads, leituras e exclusões. A organização dos
---     arquivos em pastas por usuário já é feita pelo código da aplicação,
---     e esta nova política simplesmente permite que essas operações aconteçam
---     sem a restrição do RLS do Storage.
---   - Esta é a correção definitiva para o problema de upload de arquivos.
+-- O QUE HÁ DE NOVO (v5.7):
+--   - LEADERBOARD FIX: Adicionada uma nova tabela `xp_events` para registrar
+--     TODOS os ganhos (e perdas) de XP com um timestamp. Isso centraliza
+--     a lógica de pontuação e corrige a inconsistência onde os placares
+--     filtrados por tempo (diário, hora, etc.) não refletiam todos os
+--     tipos de ganhos de XP.
+--   - RLS ATUALIZADO: A nova tabela `xp_events` foi incluída nas políticas
+--     de segurança (RLS), permitindo que a aplicação leia e escreva nela.
 -- =================================================================
 
--- Parte 1: Correção das Políticas de Segurança a Nível de Linha (RLS) para Tabelas
-CREATE OR REPLACE PROCEDURE fix_rls_policies()
+-- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
+CREATE OR REPLACE PROCEDURE fix_rls_policies_v2()
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
@@ -46,7 +42,7 @@ BEGIN
             'audio_summaries', 'chat_messages', 'user_message_votes', 'user_source_votes',
             'user_content_interactions', 'question_notebooks', 'user_notebook_interactions',
             'user_question_answers', 'case_studies', 'schedule_events',
-            'links_files'
+            'links_files', 'study_plans', 'xp_events' -- Adicionada a nova tabela
         )
     LOOP
         SELECT relrowsecurity INTO is_rls_enabled FROM pg_class WHERE relname = t AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public');
@@ -69,8 +65,8 @@ BEGIN
     END LOOP;
 END;
 $$;
-CALL fix_rls_policies();
-DROP PROCEDURE fix_rls_policies();
+CALL fix_rls_policies_v2();
+DROP PROCEDURE fix_rls_policies_v2();
 
 
 -- Parte 2: Criação de Novas Tabelas
@@ -86,6 +82,16 @@ CREATE TABLE IF NOT EXISTS public.links_files (
     hot_votes INT NOT NULL DEFAULT 0,
     cold_votes INT NOT NULL DEFAULT 0,
     comments JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+-- NOVA TABELA PARA CORRIGIR A LEADERBOARD
+CREATE TABLE IF NOT EXISTS public.xp_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    amount INT NOT NULL,
+    source TEXT NOT NULL,
+    content_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 
@@ -160,11 +166,6 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects;', policy_name);
     END LOOP;
 
-    -- Política Simplificada: Permite que QUALQUER UM (incluindo usuários não logados, role 'anon')
-    -- realize todas as operações (leitura, escrita, etc.) no bucket 'sources'.
-    -- Isso resolve o problema de upload, já que a aplicação não usa o Supabase Auth.
-    -- A organização em pastas por usuário é mantida pelo código da aplicação, mas não
-    -- forçada pela política do banco de dados.
     CREATE POLICY "Allow public access to sources bucket"
     ON storage.objects FOR ALL
     USING (bucket_id = 'sources')
@@ -205,7 +206,7 @@ const checkSupabase = () => {
 }
 
 export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
-    const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
+    const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [], xp_events: [] };
     if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
@@ -241,7 +242,8 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             userContentInteractions,
             userNotebookInteractions,
             userQuestionAnswers,
-            userCaseStudyInteractions
+            userCaseStudyInteractions,
+            xp_events
         ] = await Promise.all([
             fetchTable('users'),
             fetchTable('sources', { column: 'created_at', options: { ascending: false } }),
@@ -262,6 +264,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             fetchTable('user_notebook_interactions'),
             fetchTable('user_question_answers'),
             fetchTable('user_case_study_interactions'),
+            fetchTable('xp_events', { column: 'created_at', options: { ascending: false } }),
         ]);
 
         // Nest content under sources
@@ -297,6 +300,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             userNotebookInteractions,
             userQuestionAnswers,
             userCaseStudyInteractions,
+            xp_events,
         };
 
         return { data, error: null };
@@ -336,6 +340,28 @@ export const updateUser = async (userToUpdate: User): Promise<User | null> => {
     }
     return data as User;
 };
+
+export const logXpEvent = async (
+    user_id: string, 
+    amount: number, 
+    source: string, 
+    content_id?: string
+): Promise<XpEvent | null> => {
+    if (!checkSupabase() || amount === 0) return null;
+    
+    const { data, error } = await supabase!
+        .from('xp_events')
+        .insert({ user_id, amount, source, content_id })
+        .select()
+        .single();
+        
+    if (error) {
+        console.error("Error logging XP event:", error);
+        return null;
+    }
+    return data as XpEvent;
+};
+
 
 // ... (other db functions)
 export const addSource = async (sourcePayload: Partial<Source>): Promise<Source | null> => {

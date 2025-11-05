@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppData, User, ContentType, UserContentInteraction, Source, Summary, Flashcard, Question, ScheduleEvent, LinkFile } from '../types';
-import { upsertUserContentInteraction, incrementContentVote, updateUser as supabaseUpdateUser, addGeneratedContent } from '../services/supabaseClient';
+import { upsertUserContentInteraction, incrementContentVote, updateUser as supabaseUpdateUser, addGeneratedContent, logXpEvent } from '../services/supabaseClient';
 import { generateSpecificContent } from '../services/geminiService';
 import { checkAndAwardAchievements } from './achievements';
 
@@ -64,6 +64,14 @@ export const handleInteractionUpdate = async (
         // Revert state on failure
         setAppData(appData);
         return;
+    }
+
+    if (xpGained > 0) {
+        logXpEvent(currentUser.id, xpGained, `${contentType.toUpperCase()}_READ`, contentId).then(newEvent => {
+            if (newEvent) {
+                setAppData(prev => ({...prev, xp_events: [...prev.xp_events, newEvent]}));
+            }
+        });
     }
 
     const userWithNewXp = { ...currentUser, xp: currentUser.xp + xpGained };
@@ -178,6 +186,9 @@ export const handleVoteUpdate = async (
                 
                 dbPromises.push(supabaseUpdateUser(updatedAuthor).then(result => {
                     if (result) {
+                        logXpEvent(author.id, xpChange, 'VOTE_RECEIVED', contentId).then(newEvent => {
+                            if (newEvent) setAppData(prev => ({...prev, xp_events: [...prev.xp_events, newEvent]}));
+                        });
                         setAppData(prev => ({
                             ...prev,
                             users: prev.users.map(u => u.id === result.id ? result : u),

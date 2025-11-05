@@ -276,6 +276,15 @@ export interface StudyPlan {
   created_at: string;
 }
 
+export interface XpEvent {
+    id: string;
+    user_id: string;
+    amount: number;
+    source: string;
+    content_id?: string;
+    created_at: string;
+}
+
 export interface AppData {
   users: User[];
   sources: Source[];
@@ -291,6 +300,7 @@ export interface AppData {
   userNotebookInteractions: UserNotebookInteraction[];
   userQuestionAnswers: UserQuestionAnswer[];
   userCaseStudyInteractions: UserCaseStudyInteraction[];
+  xp_events: XpEvent[];
 }
 
 export interface StarRating {

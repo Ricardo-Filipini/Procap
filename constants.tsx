@@ -83,6 +83,7 @@ export const INITIAL_APP_DATA: AppData = {
   userNotebookInteractions: [],
   userQuestionAnswers: [],
   userCaseStudyInteractions: [],
+  xp_events: [],
 };
 
 export const ACHIEVEMENTS = {
