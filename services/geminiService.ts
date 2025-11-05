@@ -446,32 +446,34 @@ export const generateNotebookName = async (questions: Question[]): Promise<strin
     }
 }
 
-export const generateMoreContentFromSource = async (
+export const generateMoreQuestionsFromSource = async (
     sourceText: string,
-    existingContent: { summaries: any[], flashcards: any[], questions: any[] },
+    existingQuestions: any[],
     userPrompt?: string
 ): Promise<any> => {
     if (!API_KEY) return { error: "API Key not configured." };
 
     const prompt = `
-    Você é um tutor especialista e criador de conteúdo para concursos. Sua tarefa crítica é expandir os materiais de estudo de uma fonte existente, gerando conteúdo **novo e único**. Você deve evitar duplicar qualquer coisa que já exista.
+    Você é um especialista em criar questões para concursos. Sua tarefa é analisar um texto-fonte e gerar **novas e únicas** questões de múltipla escolha, evitando duplicar as que já existem.
 
     **Contexto:**
-    1.  **Texto-Fonte:** O texto original para ser analisado.
-    2.  **Conteúdo Existente:** Um JSON de todo o conteúdo previamente extraído desta fonte. Você DEVE verificar isso meticulosamente para evitar qualquer repetição.
-    3.  **Foco do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
+    1.  **Texto-Fonte:** O texto original para sua análise.
+    2.  **Questões Existentes:** Uma lista JSON de questões já extraídas desta fonte. Você DEVE verificar esta lista meticulosamente para evitar qualquer repetição de conceito ou formulação.
+    3.  **Foco do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}". Dê prioridade a este tópico.` : 'Nenhum tópico específico foi fornecido.'}
 
-    **Sua Missão - Gerar Conteúdo NOVO:**
-    1.  **Análise Profunda:** Realize uma análise profunda e completa do Texto-Fonte. Pense como um especialista no assunto. Vá além da simples correspondência de palavras-chave e entenda os conceitos, relações e implicações subjacentes.
-    2.  **Instrução Especial para Provas:** Se o Texto-Fonte for estruturado como uma prova ou uma lista de questões, seu objetivo principal é **extrair e formatar essas questões** no esquema JSON necessário. Neste caso, não crie novas questões do zero; concentre-se em capturar com precisão o que já está lá.
-    3.  **Gerar Conteúdo Inédito e Aprofundado:** Para texto padrão, encontre conceitos, detalhes ou nuances não abordados no Conteúdo Existente.
-        - **Resumos (Summaries):** Gere **pelo menos um novo resumo perspicaz** focado em um subtópico ou perspectiva ainda não detalhada. Estruture-o didaticamente com tópicos claros.
-        - **Flashcards:** SEJA EXAUSTIVO. Gere **múltiplos flashcards novos e únicos**. Encontre fatos, definições ou pares de conceitos distintos que ainda não foram transformados em flashcards.
-        - **Questões (Questions):** SEJA EXAUSTIVO. Gere **múltiplas questões de múltipla escolha novas e únicas**. Essas questões devem testar uma compreensão profunda do material. Cada questão DEVE ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas sutis que guiem o raciocínio sem entregar a resposta.
+    **Sua Missão - Gerar Novas Questões:**
+    1.  **Análise Profunda:** Realize uma análise profunda do Texto-Fonte. Pense como um examinador. Identifique conceitos, detalhes ou nuances que ainda não foram abordados nas Questões Existentes.
+    2.  **Gerar Questões Inéditas:** SEJA EXAUSTIVO. Gere o **máximo de questões novas e únicas** que puder. Elas devem testar uma compreensão profunda do material.
+    3.  **Formato Obrigatório:** Cada questão DEVE ter:
+        - Dificuldade ('Fácil', 'Médio', 'Difícil').
+        - 5 opções de múltipla escolha.
+        - Uma resposta correta.
+        - Uma explicação clara e detalhada.
+        - DUAS dicas sutis que guiem o raciocínio sem entregar a resposta.
 
-    **Conteúdo Existente (para EVITAR repetição):**
+    **Questões Existentes (para EVITAR repetição):**
     \`\`\`json
-    ${JSON.stringify(existingContent, null, 2)}
+    ${JSON.stringify(existingQuestions.map(q => ({ questionText: q.questionText, correctAnswer: q.correctAnswer })), null, 2)}
     \`\`\`
 
     **Texto-Fonte para Sua Análise:**
@@ -479,29 +481,29 @@ export const generateMoreContentFromSource = async (
     ${sourceText}
     ---
 
-    Retorne **apenas o conteúdo recém-gerado** no formato JSON especificado. Você DEVE gerar conteúdo para cada categoria, se for minimamente possível.
+    Retorne **apenas as novas questões geradas** no formato JSON especificado. Se não for possível criar novas questões, retorne um array vazio.
     `;
     
     const schema = {
         type: Type.OBJECT,
         properties: {
-            summaries: {
-                type: Type.ARRAY, items: {
-                    type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, keyPoints: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { term: { type: Type.STRING }, description: { type: Type.STRING } }, required: ['term', 'description'] } } }, required: ['title', 'content', 'keyPoints']
-                }
-            },
-            flashcards: {
-                type: Type.ARRAY, items: {
-                    type: Type.OBJECT, properties: { front: { type: Type.STRING }, back: { type: Type.STRING } }, required: ['front', 'back']
-                }
-            },
             questions: {
-                type: Type.ARRAY, items: {
-                    type: Type.OBJECT, properties: { difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil'] }, questionText: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, correctAnswer: { type: Type.STRING }, explanation: { type: Type.STRING }, hints: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
+                type: Type.ARRAY,
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        difficulty: { type: Type.STRING, enum: ['Fácil', 'Médio', 'Difícil'] },
+                        questionText: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        correctAnswer: { type: Type.STRING },
+                        explanation: { type: Type.STRING },
+                        hints: { type: Type.ARRAY, items: { type: Type.STRING } }
+                    },
+                    required: ['difficulty', 'questionText', 'options', 'correctAnswer', 'explanation', 'hints']
                 }
             }
         },
-        required: ['summaries', 'flashcards', 'questions']
+        required: ['questions']
     };
 
     try {
@@ -510,12 +512,122 @@ export const generateMoreContentFromSource = async (
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        // Fix: Ensure response.text exists before parsing.
-        if (!response.text) return { error: "Falha ao explorar a fonte para mais conteúdo." };
+
+        if (!response.text) return { questions: [] };
+        const result = JSON.parse(response.text);
+        return result;
+    } catch (error) {
+        console.error("Error generating more questions:", error);
+        return { error: "Falha ao gerar mais questões a partir da fonte." };
+    }
+};
+
+export const generateMoreSummariesFromSource = async (
+    sourceText: string,
+    existingSummaries: any[],
+    userPrompt?: string
+): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+    const prompt = `
+    Você é um especialista em resumir textos para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** resumos, evitando duplicar os que já existem.
+
+    **Contexto:**
+    1.  **Texto-Fonte:** O texto original para sua análise.
+    2.  **Resumos Existentes:** Uma lista JSON de resumos já extraídos desta fonte. Verifique esta lista para evitar repetição.
+
+    **Sua Missão - Gerar Novos Resumos:**
+    1.  **Análise Profunda:** Releia o Texto-Fonte e encontre conceitos, subtópicos ou perspectivas ainda não detalhados nos Resumos Existentes.
+    2.  **Gerar Resumos Inéditos:** Crie pelo menos um novo resumo perspicaz e bem-estruturado. Para cada resumo, identifique os termos-chave e suas descrições.
+
+    **Resumos Existentes (para EVITAR repetição):**
+    \`\`\`json
+    ${JSON.stringify(existingSummaries.map(s => ({ title: s.title })), null, 2)}
+    \`\`\`
+
+    **Texto-Fonte para Sua Análise:**
+    ---
+    ${sourceText}
+    ---
+
+    Retorne **apenas os novos resumos gerados** no formato JSON especificado. Se não for possível criar novos resumos, retorne um array vazio.
+    `;
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            summaries: {
+                type: Type.ARRAY, items: {
+                    type: Type.OBJECT, properties: { title: { type: Type.STRING }, content: { type: Type.STRING }, keyPoints: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { term: { type: Type.STRING }, description: { type: Type.STRING } }, required: ['term', 'description'] } } }, required: ['title', 'content', 'keyPoints']
+                }
+            }
+        },
+        required: ['summaries']
+    };
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema },
+        });
+        if (!response.text) return { summaries: [] };
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error generating more content:", error);
-        return { error: "Falha ao explorar a fonte para mais conteúdo." };
+        console.error("Error generating more summaries:", error);
+        return { error: "Falha ao gerar mais resumos a partir da fonte." };
+    }
+};
+
+export const generateMoreFlashcardsFromSource = async (
+    sourceText: string,
+    existingFlashcards: any[],
+    userPrompt?: string
+): Promise<any> => {
+    if (!API_KEY) return { error: "API Key not configured." };
+    const prompt = `
+    Você é um especialista em criar flashcards para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** flashcards, evitando duplicar os que já existem.
+
+    **Contexto:**
+    1.  **Texto-Fonte:** O texto original para sua análise.
+    2.  **Flashcards Existentes:** Uma lista JSON de flashcards já extraídos desta fonte. Verifique esta lista para evitar repetição.
+
+    **Sua Missão - Gerar Novos Flashcards:**
+    1.  **Análise Profunda:** Releia o Texto-Fonte e encontre fatos, definições, ou pares de conceito-definição que ainda não foram transformados em flashcards.
+    2.  **Gerar Flashcards Inéditos:** SEJA EXAUSTIVO. Gere o **máximo de flashcards novos e únicos** que puder.
+
+    **Flashcards Existentes (para EVITAR repetição):**
+    \`\`\`json
+    ${JSON.stringify(existingFlashcards.map(f => ({ front: f.front })), null, 2)}
+    \`\`\`
+
+    **Texto-Fonte para Sua Análise:**
+    ---
+    ${sourceText}
+    ---
+
+    Retorne **apenas os novos flashcards gerados** no formato JSON especificado. Se não for possível criar novos flashcards, retorne um array vazio.
+    `;
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            flashcards: {
+                type: Type.ARRAY, items: {
+                    type: Type.OBJECT, properties: { front: { type: Type.STRING }, back: { type: Type.STRING } }, required: ['front', 'back']
+                }
+            }
+        },
+        required: ['flashcards']
+    };
+    try {
+        const response: GenerateContentResponse = await getModel().generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema },
+        });
+        if (!response.text) return { flashcards: [] };
+        return JSON.parse(response.text);
+    } catch (error) {
+        console.error("Error generating more flashcards:", error);
+        return { error: "Falha ao gerar mais flashcards a partir da fonte." };
     }
 };
 

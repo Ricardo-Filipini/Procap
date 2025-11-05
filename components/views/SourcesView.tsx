@@ -3,7 +3,7 @@ import { MainContentProps } from '../../types';
 import { Source } from '../../types';
 import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon } from '../Icons';
 import { Modal } from '../Modal';
-import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreContentFromSource, generateMoreMindMapTopicsFromSource } from '../../services/geminiService';
+import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreMindMapTopicsFromSource, generateMoreQuestionsFromSource, generateMoreSummariesFromSource, generateMoreFlashcardsFromSource } from '../../services/geminiService';
 // FIX: Replaced incrementVoteCount with incrementSourceVote for type safety and correctness.
 import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementSourceVote, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource, addSourceComment } from '../../services/supabaseClient';
 import { supabase } from '../../services/supabaseClient';
@@ -326,7 +326,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
         try {
             let fullText = "";
             if (source.storage_path && source.storage_path.length > 0) {
-                 const textPromises = source.storage_path.map(async (path, index) => {
+                const textPromises = source.storage_path.map(async (path, index) => {
                     const { data: blob, error } = await supabase!.storage.from('sources').download(path);
                     if (error || !blob) {
                         throw new Error(`Falha ao baixar o arquivo: ${path}`);
@@ -334,11 +334,10 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                     const filename = (source.original_filename || [])[index] || 'file';
                     const file = new File([blob], filename, { type: blob.type });
                     return extractTextFromFile(file);
-                 });
-                 const texts = await Promise.all(textPromises);
-                 fullText = texts.join('\n\n---\n\n');
+                });
+                fullText = (await Promise.all(textPromises)).join('\n\n---\n\n');
             } else {
-                 throw new Error("Nenhum arquivo encontrado para esta fonte.");
+                throw new Error("Nenhum arquivo encontrado para esta fonte.");
             }
             
             if (type === 'mind_maps') {
@@ -347,7 +346,6 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
 
                 if (newTopics.length === 0) {
                     alert("A IA não encontrou novos tópicos para Mapas Mentais.");
-                    setGeneratingMore(null);
                     return;
                 }
 
@@ -369,41 +367,49 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 
                 if (!appendedContent || !appendedContent.newMindMaps) throw new Error("Falha ao salvar os novos mapas mentais.");
                 
-                setAppData(prev => {
-                    const newSources = prev.sources.map(s => {
-                        if (s.id === source.id) {
-                            return { ...s, mind_maps: [...s.mind_maps, ...appendedContent.newMindMaps] };
-                        }
-                        return s;
-                    });
-                    return { ...prev, sources: newSources };
-                });
+                setAppData(prev => ({
+                    ...prev,
+                    sources: prev.sources.map(s => s.id === source.id ? { ...s, mind_maps: [...s.mind_maps, ...appendedContent.newMindMaps] } : s)
+                }));
             } else {
-                const existingContent = {
-                    summaries: source.summaries,
-                    flashcards: source.flashcards,
-                    questions: source.questions,
-                };
+                let newGenerated: any;
+                const userPrompt = undefined; // No UI for this yet, but the function supports it.
 
-                const newGenerated = await generateMoreContentFromSource(fullText, existingContent);
-                if (newGenerated.error) throw new Error(newGenerated.error);
-                if (!newGenerated.summaries?.length && !newGenerated.flashcards?.length && !newGenerated.questions?.length) {
+                if (type === 'questions') {
+                    newGenerated = await generateMoreQuestionsFromSource(fullText, source.questions, userPrompt);
+                } else if (type === 'summaries') {
+                    newGenerated = await generateMoreSummariesFromSource(fullText, source.summaries, userPrompt);
+                } else if (type === 'flashcards') {
+                    newGenerated = await generateMoreFlashcardsFromSource(fullText, source.flashcards, userPrompt);
+                }
+
+                if (!newGenerated || newGenerated.error) throw new Error(newGenerated?.error || "A geração de conteúdo falhou.");
+                
+                const newContentArray = newGenerated[type];
+                if (!newContentArray || newContentArray.length === 0) {
                     alert("A IA não encontrou nenhum conteúdo inédito para adicionar.");
-                    setGeneratingMore(null);
                     return;
                 }
 
-                const appendedContent = await appendGeneratedContentToSource(source.id, newGenerated);
+                const contentToAppend = { [type]: newContentArray };
+                const appendedContent = await appendGeneratedContentToSource(source.id, contentToAppend);
                 if (!appendedContent) throw new Error("Falha ao salvar o novo conteúdo no banco de dados.");
                 
                 setAppData(prev => {
                     const newSources = prev.sources.map(s => {
                         if (s.id === source.id) {
+                            const key = `new${type.charAt(0).toUpperCase() + type.slice(1)}`;
+                            const newItems = appendedContent[key as keyof typeof appendedContent];
+                            
+                            let formattedItems = newItems;
+                            if (type === 'questions' && Array.isArray(newItems)) {
+                                formattedItems = newItems.map((q: any) => ({...q, questionText: q.question_text, correctAnswer: q.correct_answer}));
+                            }
+                            
+                            const existingContent = s[type] || [];
                             return {
                                 ...s,
-                                summaries: [...s.summaries, ...appendedContent.newSummaries],
-                                flashcards: [...s.flashcards, ...appendedContent.newFlashcards],
-                                questions: [...s.questions, ...appendedContent.newQuestions.map((q: any) => ({...q, questionText: q.question_text, correctAnswer: q.correct_answer}))],
+                                [type]: [...existingContent, ...formattedItems],
                             };
                         }
                         return s;
@@ -549,7 +555,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                     <p className="text-sm">{source.summary}</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {(['summaries', 'flashcards', 'questions', 'mind_maps'] as const).map(type => {
-                            const count = source[type]?.length || 0;
+                            const count = (source[type] as any[] | undefined)?.length || 0;
                             const typeNameMap = { summaries: 'Resumos', flashcards: 'Flashcards', questions: 'Questões', mind_maps: 'Mapas' };
                             const isGeneratingThis = generatingMore?.sourceId === source.id && generatingMore?.type === type;
                             return (

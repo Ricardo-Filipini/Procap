@@ -381,7 +381,15 @@ export const addGeneratedContent = async (sourceId: string, content: any): Promi
             results.flashcards = data;
         }
          if (content.questions?.length) {
-            const payload = content.questions.map((q: any) => ({...q, source_id: sourceId, question_text: q.questionText, correct_answer: q.correctAnswer}));
+            const payload = content.questions.map((q: any) => ({
+                source_id: sourceId,
+                difficulty: q.difficulty,
+                question_text: q.questionText,
+                options: q.options,
+                correct_answer: q.correctAnswer,
+                explanation: q.explanation,
+                hints: q.hints
+            }));
             const { data, error } = await supabase!.from('questions').insert(payload).select();
             if(error) throw error;
             results.questions = data;
@@ -414,7 +422,15 @@ export const appendGeneratedContentToSource = async (sourceId: string, content: 
             results.newFlashcards = data;
         }
         if (content.questions?.length) {
-            const payload = content.questions.map((q: any) => ({...q, source_id: sourceId, question_text: q.questionText, correct_answer: q.correctAnswer}));
+            const payload = content.questions.map((q: any) => ({
+                source_id: sourceId,
+                difficulty: q.difficulty,
+                question_text: q.questionText,
+                options: q.options,
+                correct_answer: q.correctAnswer,
+                explanation: q.explanation,
+                hints: q.hints
+            }));
             const { data, error } = await supabase!.from('questions').insert(payload).select();
             if(error) throw error;
             results.newQuestions = data;
