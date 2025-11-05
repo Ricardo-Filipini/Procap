@@ -564,8 +564,8 @@ export const NotebookDetailView: React.FC<{
                         // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
                         const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Explicitly type `a` and `b` in the sort callback to prevent TypeScript from inferring them as `unknown`.
-                        groupToSort.sort((a: Question, b: Question) => {
+                        // FIX: Explicitly type `a` and `b` as `any` to bypass strict type checking issues from upstream type pollution.
+                        groupToSort.sort((a: any, b: any) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
                             const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;

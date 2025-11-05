@@ -1,9 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan } from '../types';
+import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile } from '../types';
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v4.0) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.1) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -17,12 +17,14 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 -- 4. COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 -- 5. Clique em "RUN".
 --
--- O QUE HÁ DE NOVO (v4.0):
---   - Adiciona a cláusula `WITH CHECK (true)` a todas as políticas de
---     segurança (RLS), corrigindo o bug crítico que impedia o salvamento
---     de progresso de questões, votos e outras interações.
---   - Padroniza e torna mais seguras todas as funções de votação (RPCs),
---     eliminando o uso de SQL dinâmico e inconsistências.
+-- O QUE HÁ DE NOVO (v5.1):
+--   - Adiciona a tabela `links_files` para armazenar links e documentos.
+--   - Adiciona políticas de RLS para o Supabase Storage (bucket 'sources'),
+--     corrigindo erros de permissão ao fazer upload de arquivos.
+--   - Atualiza a função `increment_general_content_vote` para suportar
+--     votos na nova tabela `links_files`.
+--   - Garante que todas as tabelas, incluindo a nova, tenham as
+--     políticas de RLS corretas.
 -- =================================================================
 
 -- Parte 1: Correção das Políticas de Segurança a Nível de Linha (RLS)
@@ -37,7 +39,8 @@ BEGIN
             'users', 'sources', 'summaries', 'flashcards', 'questions', 'mind_maps',
             'audio_summaries', 'chat_messages', 'user_message_votes', 'user_source_votes',
             'user_content_interactions', 'question_notebooks', 'user_notebook_interactions',
-            'user_question_answers', 'case_studies', 'user_case_study_interactions', 'schedule_events'
+            'user_question_answers', 'case_studies', 'schedule_events',
+            'links_files' -- Adicionada nova tabela
         )
     LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
@@ -62,7 +65,24 @@ CALL fix_rls_policies();
 DROP PROCEDURE fix_rls_policies();
 
 
--- Parte 2: Padronização e Segurança das Funções de Votação (RPC)
+-- Parte 2: Criação de Novas Tabelas
+-- Cria a tabela para armazenar os links e arquivos enviados pelos usuários.
+CREATE TABLE IF NOT EXISTS public.links_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    url TEXT,
+    file_path TEXT,
+    file_name TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    hot_votes INT NOT NULL DEFAULT 0,
+    cold_votes INT NOT NULL DEFAULT 0,
+    comments JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+
+-- Parte 3: Padronização e Segurança das Funções de Votação (RPC)
 -- Removemos as funções antigas e as recriamos com SQL estático para mais segurança.
 
 DROP FUNCTION IF EXISTS public.increment_vote(uuid, text, integer);
@@ -80,6 +100,7 @@ CREATE OR REPLACE FUNCTION increment_case_study_vote( case_study_id_param UUID, 
 CREATE OR REPLACE FUNCTION increment_schedule_event_vote( event_id_param TEXT, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.schedule_events SET hot_votes = hot_votes + increment_value WHERE id = event_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.schedule_events SET cold_votes = cold_votes + increment_value WHERE id = event_id_param; END IF; END; $$;
 
 -- Nova função genérica e segura para os demais conteúdos (summaries, flashcards, etc.)
+DROP FUNCTION IF EXISTS public.increment_general_content_vote(text, uuid, text, integer);
 CREATE OR REPLACE FUNCTION increment_general_content_vote(table_name_param TEXT, content_id_param UUID, vote_type TEXT, increment_value INT)
 RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
@@ -98,17 +119,85 @@ BEGIN
     ELSIF table_name_param = 'audio_summaries' THEN
         IF vote_type = 'hot_votes' THEN UPDATE public.audio_summaries SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
         ELSIF vote_type = 'cold_votes' THEN UPDATE public.audio_summaries SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
+    ELSIF table_name_param = 'links_files' THEN -- Adicionada a nova tabela
+        IF vote_type = 'hot_votes' THEN UPDATE public.links_files SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
+        ELSIF vote_type = 'cold_votes' THEN UPDATE public.links_files SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
     END IF;
 END;
 $$;
 
--- 13. Concessão de Permissões (Grants)
+-- Parte 4: Concessão de Permissões (Grants)
 -- Garante que o role 'anon' (usuários públicos/sem login Supabase)
 -- tenha as permissões de tabela necessárias para interagir com a aplicação.
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+
+
+-- Parte 5: Políticas de Segurança para o Storage (Supabase Storage)
+-- Garante que os usuários autenticados só possam gerenciar arquivos
+-- dentro de suas próprias pastas no bucket 'sources'.
+CREATE OR REPLACE PROCEDURE fix_storage_policies() LANGUAGE plpgsql AS $$
+DECLARE
+    policy_name TEXT;
+    table_oid OID;
+BEGIN
+    -- Verifica se a tabela storage.objects existe
+    SELECT oid INTO table_oid FROM pg_class WHERE relname = 'objects' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'storage');
+    IF table_oid IS NULL THEN
+        RAISE NOTICE 'Tabela storage.objects não encontrada. Pulando políticas de storage.';
+        RETURN;
+    END IF;
+
+    -- Habilita RLS na tabela de objetos do storage
+    ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+    -- Remove políticas antigas para garantir uma configuração limpa
+    FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects')
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects;', policy_name);
+    END LOOP;
+
+    -- Política para SELECT: Permite que qualquer usuário autenticado leia arquivos do bucket 'sources'.
+    -- As URLs públicas do Supabase já controlam o acesso, mas esta política garante acesso via SDK.
+    CREATE POLICY "Allow authenticated read access on sources"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'sources' AND auth.role() = 'authenticated');
+
+    -- Política para INSERT: Permite que um usuário autenticado crie arquivos em sua própria pasta.
+    -- O caminho do arquivo DEVE começar com o ID do usuário (ex: 'uuid-do-usuario/arquivo.pdf').
+    -- Usamos path_tokens[1] para pegar a primeira pasta do caminho.
+    CREATE POLICY "Allow authenticated insert on user's own folder"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'sources' AND
+        auth.role() = 'authenticated' AND
+        (auth.uid())::text = path_tokens[1]
+    );
+
+    -- Política para UPDATE: Permite que um usuário autenticado atualize arquivos em sua própria pasta.
+    CREATE POLICY "Allow authenticated update on user's own folder"
+    ON storage.objects FOR UPDATE
+    USING (
+        bucket_id = 'sources' AND
+        auth.role() = 'authenticated' AND
+        (auth.uid())::text = path_tokens[1]
+    );
+
+    -- Política para DELETE: Permite que um usuário autenticado delete arquivos de sua própria pasta.
+    CREATE POLICY "Allow authenticated delete on user's own folder"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'sources' AND
+        auth.role() = 'authenticated' AND
+        (auth.uid())::text = path_tokens[1]
+    );
+
+END;
+$$;
+CALL fix_storage_policies();
+DROP PROCEDURE IF EXISTS fix_storage_policies();
 
 */
 
@@ -140,7 +229,7 @@ const checkSupabase = () => {
 }
 
 export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
-    const emptyData: AppData = { users: [], sources: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
+    const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [] };
     if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
@@ -165,6 +254,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             rawQuestions,
             rawMindMaps,
             rawAudioSummaries,
+            linksFiles,
             chatMessages,
             questionNotebooks,
             caseStudies,
@@ -184,6 +274,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             fetchTable('questions'),
             fetchTable('mind_maps'),
             fetchTable('audio_summaries'),
+            fetchTable('links_files', { column: 'created_at', options: { ascending: false } }),
             fetchTable('chat_messages', { column: 'timestamp', options: { ascending: true } }),
             fetchTable('question_notebooks', { column: 'created_at', options: { ascending: false } }),
             fetchTable('case_studies', { column: 'created_at', options: { ascending: false } }),
@@ -218,6 +309,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
         const data: AppData = {
             users,
             sources: sourcesWithContent,
+            linksFiles,
             chatMessages,
             questionNotebooks,
             caseStudies,
@@ -529,4 +621,32 @@ export const addStudyPlan = async (payload: Omit<StudyPlan, 'id' | 'created_at'>
         return null;
     }
     return data;
+};
+
+export const addLinkFile = async (payload: Partial<LinkFile>): Promise<LinkFile | null> => {
+    if (!checkSupabase()) return null;
+    const { data, error } = await supabase!.from('links_files').insert(payload).select().single();
+    if (error) { console.error("Error adding link/file:", error); return null; }
+    return data as LinkFile;
+};
+
+export const updateLinkFile = async (id: string, payload: Partial<LinkFile>): Promise<LinkFile | null> => {
+    if (!checkSupabase()) return null;
+    const { data, error } = await supabase!.from('links_files').update(payload).eq('id', id).select().single();
+    if (error) { console.error("Error updating link/file:", error); return null; }
+    return data as LinkFile;
+};
+
+export const deleteLinkFile = async (id: string, filePath?: string): Promise<boolean> => {
+    if (!checkSupabase()) return false;
+    if (filePath) {
+        const { error: storageError } = await supabase!.storage.from('sources').remove([filePath]);
+        if (storageError) {
+            console.error("Error deleting file from storage:", storageError);
+            // Non-blocking, continue to delete DB record
+        }
+    }
+    const { error } = await supabase!.from('links_files').delete().eq('id', id);
+    if (error) { console.error("Error deleting link/file from DB:", error); return false; }
+    return true;
 };

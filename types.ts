@@ -2,7 +2,7 @@ import React from 'react';
 
 export type Theme = 'light' | 'dark';
 
-export type ContentType = 'summary' | 'flashcard' | 'question' | 'mind_map' | 'question_notebook' | 'audio_summary' | 'case_study' | 'cronograma';
+export type ContentType = 'summary' | 'flashcard' | 'question' | 'mind_map' | 'question_notebook' | 'audio_summary' | 'case_study' | 'cronograma' | 'link_file';
 
 export interface View {
   name: string;
@@ -117,6 +117,20 @@ export interface AudioSummary {
     source?: Source;
     title: string;
     audioUrl: string;
+    hot_votes: number;
+    cold_votes: number;
+    comments: Comment[];
+}
+
+export interface LinkFile {
+    id: string;
+    user_id: string;
+    title: string;
+    description?: string;
+    url?: string;
+    file_path?: string;
+    file_name?: string;
+    created_at: string;
     hot_votes: number;
     cold_votes: number;
     comments: Comment[];
@@ -265,6 +279,7 @@ export interface StudyPlan {
 export interface AppData {
   users: User[];
   sources: Source[];
+  linksFiles: LinkFile[];
   chatMessages: ChatMessage[];
   questionNotebooks: QuestionNotebook[];
   caseStudies: CaseStudy[];

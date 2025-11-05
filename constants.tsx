@@ -1,9 +1,10 @@
 import React from 'react';
 import { AppData, View, ScheduleEvent } from './types';
-import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon, DocumentTextIcon, CalendarDaysIcon } from './components/Icons';
+import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon, DocumentTextIcon, CalendarDaysIcon, PaperClipIcon } from './components/Icons';
 
 export const VIEWS: View[] = [
     { name: 'Questões', icon: QuestionMarkCircleIcon },
+    { name: 'Links/Arquivos', icon: PaperClipIcon },
     { name: 'Mídia', icon: SpeakerWaveIcon },
     { name: 'Flashcards', icon: SparklesIcon },
     { name: 'Resumos', icon: BookOpenIcon },
@@ -70,6 +71,7 @@ export const PROCAP_SCHEDULE_DATA: ScheduleEvent[] = [
 export const INITIAL_APP_DATA: AppData = {
   users: [],
   sources: [],
+  linksFiles: [],
   chatMessages: [],
   questionNotebooks: [],
   caseStudies: [],

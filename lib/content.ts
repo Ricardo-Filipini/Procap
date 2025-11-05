@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppData, User, ContentType, UserContentInteraction, Source, Summary, Flashcard, Question, ScheduleEvent } from '../types';
+import { AppData, User, ContentType, UserContentInteraction, Source, Summary, Flashcard, Question, ScheduleEvent, LinkFile } from '../types';
 import { upsertUserContentInteraction, incrementContentVote, updateUser as supabaseUpdateUser, addGeneratedContent } from '../services/supabaseClient';
 import { generateSpecificContent } from '../services/geminiService';
 import { checkAndAwardAchievements } from './achievements';
@@ -26,6 +26,9 @@ export const handleInteractionUpdate = async (
                 xpGained += 3;
                 break;
             case 'summary':
+                xpGained += 5;
+                break;
+            case 'link_file':
                 xpGained += 5;
                 break;
             case 'audio_summary':
@@ -76,12 +79,12 @@ export const handleVoteUpdate = async (
     currentUser: User,
     updateUser: (user: User) => void,
     appData: AppData,
-    contentType: 'summary' | 'flashcard' | 'question' | 'mind_map' | 'audio_summary' | 'cronograma',
+    contentType: 'summary' | 'flashcard' | 'question' | 'mind_map' | 'audio_summary' | 'cronograma' | 'link_file',
     contentId: string,
     type: 'hot' | 'cold',
     increment: 1 | -1
 ) => {
-    const tableMap = { summary: 'summaries', flashcard: 'flashcards', question: 'questions', mind_map: 'mind_maps', audio_summary: 'audio_summaries', cronograma: 'schedule_events' };
+    const tableMap = { summary: 'summaries', flashcard: 'flashcards', question: 'questions', mind_map: 'mind_maps', audio_summary: 'audio_summaries', cronograma: 'schedule_events', link_file: 'links_files' };
     const tableName = tableMap[contentType];
 
     const interaction = appData.userContentInteractions.find(
@@ -112,12 +115,18 @@ export const handleVoteUpdate = async (
         // 2. Update total votes on the content item itself
         let newScheduleEvents = prev.scheduleEvents;
         let newSources = prev.sources;
+        let newLinksFiles = prev.linksFiles;
 
         if (tableName === 'schedule_events') {
             newScheduleEvents = prev.scheduleEvents.map(item =>
                 item.id === contentId ? { ...item, [`${type}_votes`]: item[`${type}_votes`] + increment } : item
             );
-        } else {
+        } else if (tableName === 'links_files') {
+            newLinksFiles = prev.linksFiles.map(item =>
+                item.id === contentId ? { ...item, [`${type}_votes`]: item[`${type}_votes`] + increment } : item
+            );
+        }
+        else {
             newSources = prev.sources.map(source => {
                 const contentList = source[tableName as keyof Source] as any[];
                 if (contentList?.some(item => item.id === contentId)) {
@@ -132,7 +141,7 @@ export const handleVoteUpdate = async (
               });
         }
 
-        return { ...prev, userContentInteractions: newInteractions, scheduleEvents: newScheduleEvents, sources: newSources };
+        return { ...prev, userContentInteractions: newInteractions, scheduleEvents: newScheduleEvents, sources: newSources, linksFiles: newLinksFiles };
     });
 
     // DB Updates
@@ -149,27 +158,32 @@ export const handleVoteUpdate = async (
     
     // XP for content author
     if (contentType !== 'cronograma') {
-        const sourceContainingItem = appData.sources.find(s => 
-            (s[tableName as keyof Source] as any[])?.some(item => item.id === contentId)
-        );
+        let authorId: string | undefined;
 
-        if (sourceContainingItem) {
-            const authorId = sourceContainingItem.user_id;
-            if (authorId !== currentUser.id) {
-                const author = appData.users.find(u => u.id === authorId);
-                if (author) {
-                    const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                    const updatedAuthor = { ...author, xp: Math.max(0, author.xp + xpChange) };
-                    
-                    dbPromises.push(supabaseUpdateUser(updatedAuthor).then(result => {
-                        if (result) {
-                            setAppData(prev => ({
-                                ...prev,
-                                users: prev.users.map(u => u.id === result.id ? result : u),
-                            }));
-                        }
-                    }));
-                }
+        if (contentType === 'link_file') {
+            const item = appData.linksFiles.find(i => i.id === contentId);
+            authorId = item?.user_id;
+        } else {
+            const sourceContainingItem = appData.sources.find(s => 
+                (s[tableName as keyof Source] as any[])?.some(item => item.id === contentId)
+            );
+            authorId = sourceContainingItem?.user_id;
+        }
+
+        if (authorId && authorId !== currentUser.id) {
+            const author = appData.users.find(u => u.id === authorId);
+            if (author) {
+                const xpChange = (type === 'hot' ? 1 : -1) * increment;
+                const updatedAuthor = { ...author, xp: Math.max(0, author.xp + xpChange) };
+                
+                dbPromises.push(supabaseUpdateUser(updatedAuthor).then(result => {
+                    if (result) {
+                        setAppData(prev => ({
+                            ...prev,
+                            users: prev.users.map(u => u.id === result.id ? result : u),
+                        }));
+                    }
+                }));
             }
         }
     }

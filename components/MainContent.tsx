@@ -16,6 +16,7 @@ import { SourcesView } from './views/SourcesView';
 // Fix: Correctly import CaseStudyView from its new file.
 import { CaseStudyView } from './views/CaseStudyView';
 import { CronogramaView } from './views/CronogramaView';
+import { LinksFilesView } from './views/LinksFilesView';
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme } = props;
@@ -34,6 +35,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
   const allQuestions = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allMindMaps = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allLinksFiles = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
 
   const renderContent = () => {
     const currentNavTarget = navTarget && navTarget.viewName === activeView.name ? { term: navTarget.term, id: navTarget.id! } : null;
@@ -52,6 +54,8 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
         return <FlashcardsView {...viewProps} allItems={allFlashcards} />;
       case 'Questões':
         return <QuestionsView {...props} navTarget={currentNavTarget} clearNavTarget={clearNavTarget} allItems={allQuestions} />;
+      case 'Links/Arquivos':
+        return <LinksFilesView {...viewProps} allItems={allLinksFiles} />;
       case 'Mapas Mentais':
           return <MindMapsView {...viewProps} allItems={allMindMaps} />;
       case 'Mídia':
