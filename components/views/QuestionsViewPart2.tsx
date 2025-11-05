@@ -562,14 +562,13 @@ export const NotebookDetailView: React.FC<{
                 default:
                     if (notebook !== 'all') {
                         // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
-                        // FIX: Use an explicit arrow function with String() to ensure proper type inference and prevent 'unknown' type errors.
-                        // FIX: Explicitly type `id` as `any` to prevent type pollution issues where it was inferred as `unknown`.
-                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map((id: any) => String(id)) : [];
+// Fix: The `id` in `notebook.question_ids.map` was inferred as `unknown` due to upstream type pollution, causing a type error. Explicitly mapping with `String` ensures all IDs are strings.
+                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Explicitly type `a` and `b` as `any` to bypass strict type checking issues from upstream type pollution.
+                        // FIX: By ensuring `a` and `b` are correctly typed from the `groupToSort` array and casting their IDs to strings for the map lookup, we prevent type errors caused by upstream `any` types.
                         groupToSort.sort((a: any, b: any) => {
-                            const orderA = orderMap.get(a.id) ?? Infinity;
-                            const orderB = orderMap.get(b.id) ?? Infinity;
+                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
+                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
                             if (orderA < orderB) return -1;
                             if (orderA > orderB) return 1;
                             return 0;

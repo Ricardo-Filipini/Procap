@@ -21,6 +21,13 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'mind_map';
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+    const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
+
+    const {
+        sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
+        isFiltering, aiFilterIds,
+        processedItems, handleAiFilter, handleClearFilter,
+    } = useContentViewController(allItems, currentUser, appData, contentType, 'source');
 
     const handleToggleGroup = (groupKey: string) => {
         setOpenGroups(prev => {
@@ -31,25 +38,43 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
         });
     };
 
+    // Step 1: Capture navigation command and prepare the component's state.
     useEffect(() => {
         if (navTarget?.id) {
             const item = allItems.find(i => i.id === navTarget.id);
-            if (item?.source) {
-                setOpenGroups(prev => new Set(prev).add(item.source.title));
-                setTimeout(() => {
-                    const element = document.getElementById(`mindmap-${item.id}`);
-                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
+            const groupKey = item?.source?.title;
+            
+            if (groupKey) {
+                setNavigationState({ targetId: navTarget.id, groupKey });
+                setSort('source');
+                setOpenGroups(prev => new Set(prev).add(groupKey));
+                clearNavTarget();
+            } else {
+                clearNavTarget();
             }
-            clearNavTarget();
         }
-    }, [navTarget, allItems, clearNavTarget]);
+    }, [navTarget, allItems, setSort, clearNavTarget]);
 
-    const {
-        sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        isFiltering, aiFilterIds,
-        processedItems, handleAiFilter, handleClearFilter,
-    } = useContentViewController(allItems, currentUser, appData, contentType, 'source');
+    // Step 2: Once the state is ready (group is open), perform DOM actions.
+    useEffect(() => {
+        if (!navigationState) return;
+
+        if (openGroups.has(navigationState.groupKey)) {
+            const timer = setTimeout(() => {
+                const element = document.getElementById(`mindmap-${navigationState.targetId}`);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setNavigationState(null);
+                } else {
+                    console.warn(`Navigation target element 'mindmap-${navigationState.targetId}' not found in DOM.`);
+                    setNavigationState(null);
+                }
+            }, 300);
+
+            return () => clearTimeout(timer);
+        }
+    }, [navigationState, openGroups]);
+
 
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
         if (!commentingOn) return;
@@ -103,8 +128,8 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
-                            <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
-                                <summary className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                            <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                                <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                                 <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                     {renderItems(items)}
                                 </div>

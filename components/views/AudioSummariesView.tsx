@@ -120,6 +120,13 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'audio_summary';
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+    const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
+    
+    const {
+        sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
+        aiFilterIds, isFiltering,
+        processedItems, handleAiFilter, handleClearFilter,
+    } = useContentViewController(allItems, currentUser, appData, contentType);
 
      const handleToggleGroup = (groupKey: string) => {
         setOpenGroups(prev => {
@@ -129,26 +136,43 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
             return next;
         });
     };
-
+    
+    // Step 1: Capture navigation command and prepare the component's state.
     useEffect(() => {
         if (navTarget?.id) {
             const item = allItems.find(i => i.id === navTarget.id);
-            if (item?.source) {
-                setOpenGroups(prev => new Set(prev).add(item.source.title));
-                setTimeout(() => {
-                    const element = document.getElementById(`media-${item.id}`);
-                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
+            const groupKey = item?.source?.title;
+            
+            if (groupKey) {
+                setNavigationState({ targetId: navTarget.id, groupKey });
+                setSort('source');
+                setOpenGroups(prev => new Set(prev).add(groupKey));
+                clearNavTarget();
+            } else {
+                clearNavTarget();
             }
-            clearNavTarget();
         }
-    }, [navTarget, allItems, clearNavTarget]);
+    }, [navTarget, allItems, setSort, clearNavTarget]);
 
-    const {
-        sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, isFiltering,
-        processedItems, handleAiFilter, handleClearFilter,
-    } = useContentViewController(allItems, currentUser, appData, contentType);
+    // Step 2: Once the state is ready (group is open), perform DOM actions.
+    useEffect(() => {
+        if (!navigationState) return;
+
+        if (openGroups.has(navigationState.groupKey)) {
+            const timer = setTimeout(() => {
+                const element = document.getElementById(`media-${navigationState.targetId}`);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setNavigationState(null);
+                } else {
+                     console.warn(`Navigation target element 'media-${navigationState.targetId}' not found in DOM.`);
+                    setNavigationState(null);
+                }
+            }, 300);
+
+            return () => clearTimeout(timer);
+        }
+    }, [navigationState, openGroups]);
 
     const handleMediaPlay = (audioSummary: AudioSummary) => {
         const interaction = appData.userContentInteractions.find(
@@ -249,7 +273,7 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
                 {Array.isArray(processedItems) 
                     ? processedItems.map(renderItem)
                     : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => (
-                        <details key={groupKey} open={openGroups.has(groupKey)} onToggle={() => handleToggleGroup(groupKey)} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                        <details key={groupKey} open={openGroups.has(groupKey)} onToggle={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
                              <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
                             <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                 {items.map(renderItem)}

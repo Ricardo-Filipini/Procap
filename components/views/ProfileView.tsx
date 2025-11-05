@@ -105,16 +105,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
             medias: allMedias
         };
 
-        const planContent = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
-        const newPlan = await addStudyPlan({ user_id: user.id, content: planContent });
+        try {
+            const planContent = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
+            if (!planContent || planContent.startsWith("Desculpe")) {
+                throw new Error("A IA não conseguiu gerar o plano de estudos.");
+            }
+            const newPlan = await addStudyPlan({ user_id: user.id, content: planContent });
 
-        if (newPlan) {
-            setAppData(prev => ({ ...prev, studyPlans: [newPlan, ...prev.studyPlans] }));
-            setCurrentPlanIndex(0); // Show the newest plan
-        } else {
-            alert("Falha ao salvar o novo plano de estudos.");
+            if (newPlan) {
+                // The `userPlans` value is from before this new plan is added, so it's correct for the check.
+                const isFirstPlan = userPlans.length === 0;
+                const xpGained = isFirstPlan ? 100 : 15;
+
+                setAppData(prev => ({ ...prev, studyPlans: [newPlan, ...prev.studyPlans] }));
+                setCurrentPlanIndex(0); // Show the newest plan
+
+                const updatedUser = { ...user, xp: user.xp + xpGained };
+                updateUser(updatedUser);
+            } else {
+                throw new Error("Falha ao salvar o novo plano de estudos no banco de dados.");
+            }
+        } catch (error: any) {
+            console.error("Error generating or saving study plan:", error);
+            alert(`Ocorreu um erro ao gerar o plano de estudos: ${error.message}`);
+        } finally {
+            setLoadingPlan(false);
         }
-        setLoadingPlan(false);
     }
     
     const parseAndRenderMessage = (text: string) => {
