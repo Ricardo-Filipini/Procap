@@ -90,6 +90,17 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
         processedItems,
     } = useContentViewController(allItems, currentUser, appData, contentType, 'time');
 
+    const handleAccessContent = (item: LinkFile) => {
+        const interaction = appData.userContentInteractions.find(
+            i => i.user_id === currentUser.id && i.content_id === item.id && i.content_type === contentType
+        );
+        const isAlreadyRead = interaction?.is_read || false;
+
+        if (!isAlreadyRead) {
+            handleInteractionUpdate(setAppData, appData, currentUser, updateUser, contentType, item.id, { is_read: true });
+        }
+    };
+
     const handleAddItem = async (payload: Partial<LinkFile>, file?: File) => {
         let finalPayload = { ...payload, user_id: currentUser.id, comments: [], hot_votes: 0, cold_votes: 0 };
 
@@ -157,12 +168,12 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
                     {item.description && <p className="text-sm my-2">{item.description}</p>}
                     <div className="mt-4 flex items-center gap-4">
                         {item.url && (
-                            <a href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full text-sm font-semibold hover:bg-blue-200">
+                            <a href={item.url} target="_blank" rel="noopener noreferrer" onClick={() => handleAccessContent(item)} className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full text-sm font-semibold hover:bg-blue-200">
                                 <LinkIcon className="w-4 h-4" /> Abrir Link
                             </a>
                         )}
                         {fileUrl && (
-                            <a href={fileUrl} download={item.file_name} className="flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 rounded-full text-sm font-semibold hover:bg-green-200">
+                            <a href={fileUrl} download={item.file_name} onClick={() => handleAccessContent(item)} className="flex items-center gap-2 px-3 py-1 bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 rounded-full text-sm font-semibold hover:bg-green-200">
                                 <DownloadIcon className="w-4 h-4" /> Baixar Arquivo
                             </a>
                         )}

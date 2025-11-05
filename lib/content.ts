@@ -29,7 +29,7 @@ export const handleInteractionUpdate = async (
                 xpGained += 5;
                 break;
             case 'link_file':
-                xpGained += 5;
+                xpGained += 1;
                 break;
             case 'audio_summary':
                 xpGained += 25;
