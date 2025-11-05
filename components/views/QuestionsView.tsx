@@ -11,28 +11,30 @@ import { NotebookDetailView, NotebookGridView } from './QuestionsViewPart2';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
+// Fix: Updated props to be consistent with other views, using navTarget and clearNavTarget.
 interface QuestionsViewProps extends MainContentProps {
     allItems: (Question & { user_id: string, created_at: string})[];
-    filterTerm: string | null;
-    clearFilter: () => void;
+    navTarget: { term: string, id?: string } | null;
+    clearNavTarget: () => void;
 }
 
-export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, filterTerm, clearFilter }) => {
+export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('time');
     
     useEffect(() => {
-        if (filterTerm) {
-            const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === filterTerm.toLowerCase());
+        // Fix: Use navTarget prop for navigation logic.
+        if (navTarget) {
+            const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term.toLowerCase());
             if (notebook) {
                 setSelectedNotebook(notebook);
             } else {
-                alert(`Caderno de questões "${filterTerm}" não encontrado.`);
+                alert(`Caderno de questões "${navTarget.term}" não encontrado.`);
             }
-            clearFilter();
+            clearNavTarget();
         }
-    }, [filterTerm, clearFilter, appData.questionNotebooks]);
+    }, [navTarget, clearNavTarget, appData.questionNotebooks]);
 
     useEffect(() => {
         const fetchAllUserAnswers = async () => {

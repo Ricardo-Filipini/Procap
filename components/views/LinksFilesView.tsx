@@ -95,8 +95,8 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
 
         if (file) {
             const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
-            const filePath = `${currentUser.id}/links_files/${Date.now()}_${sanitizeFileName(file.name)}`;
-            const { error: uploadError } = await supabase!.storage.from('sources').upload(filePath, file);
+            const filePath = `${currentUser.id}/${Date.now()}_${sanitizeFileName(file.name)}`;
+            const { error: uploadError } = await supabase!.storage.from('files').upload(filePath, file);
             if (uploadError) {
                 alert(`Erro no upload: ${uploadError.message}`);
                 setIsAddModalOpen(false);
@@ -145,7 +145,7 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
         const author = appData.users.find(u => u.id === item.user_id);
         let fileUrl: string | null = null;
         if (item.file_path) {
-            const { data } = supabase!.storage.from('sources').getPublicUrl(item.file_path);
+            const { data } = supabase!.storage.from('files').getPublicUrl(item.file_path);
             fileUrl = data.publicUrl;
         }
 

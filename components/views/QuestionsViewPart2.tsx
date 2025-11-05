@@ -538,7 +538,7 @@ export const NotebookDetailView: React.FC<{
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
-        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(id => String(id)) : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -562,7 +562,9 @@ export const NotebookDetailView: React.FC<{
                 default:
                     if (notebook !== 'all') {
                         // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
-                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+                        // FIX: Use an explicit arrow function with String() to ensure proper type inference and prevent 'unknown' type errors.
+                        // FIX: Explicitly type `id` as `any` to prevent type pollution issues where it was inferred as `unknown`.
+                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map((id: any) => String(id)) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         // FIX: Explicitly type `a` and `b` as `any` to bypass strict type checking issues from upstream type pollution.
                         groupToSort.sort((a: any, b: any) => {
