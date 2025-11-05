@@ -3,7 +3,7 @@ import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { Modal } from '../Modal';
-import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon } from '../Icons';
+import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon } from '../Icons';
 import { ContentActions } from '../shared/ContentActions';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
@@ -534,6 +534,7 @@ export const NotebookDetailView: React.FC<{
     const [questionSortOrder, setQuestionSortOrder] = useState<'default' | 'temp' | 'date' | 'random'>('default');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
+    const [showWrongOnly, setShowWrongOnly] = useState(false);
     
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
@@ -544,7 +545,17 @@ export const NotebookDetailView: React.FC<{
     }, [notebook, allQuestions]);
 
     useEffect(() => {
-        let questionsToSort = [...questionsInNotebook];
+        let questionsToProcess = [...questionsInNotebook];
+
+        if (showWrongOnly) {
+            const answeredIncorrectlyIds = new Set(
+                appData.userQuestionAnswers
+                    .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId)
+                    .filter(ans => !ans.is_correct_first_try)
+                    .map(ans => ans.question_id)
+            );
+            questionsToProcess = questionsToProcess.filter(q => answeredIncorrectlyIds.has(q.id));
+        }
 
         const sortGroup = (group: (Question & { user_id: string, created_at: string})[]) => {
             const groupToSort = [...group]; // Create a mutable copy to sort
@@ -581,20 +592,20 @@ export const NotebookDetailView: React.FC<{
         };
 
         if (notebook === 'all' && prioritizeApostilas) {
-            const apostilaQuestions = questionsToSort.filter(q => q.source?.title.startsWith('(Apostila)'));
-            const otherQuestions = questionsToSort.filter(q => !q.source?.title.startsWith('(Apostila)'));
+            const apostilaQuestions = questionsToProcess.filter(q => q.source?.title.startsWith('(Apostila)'));
+            const otherQuestions = questionsToProcess.filter(q => !q.source?.title.startsWith('(Apostila)'));
             
             const sortedApostila = sortGroup(apostilaQuestions);
             const sortedOthers = sortGroup(otherQuestions);
 
             setSortedQuestions([...sortedApostila, ...sortedOthers]);
         } else {
-            setSortedQuestions(sortGroup(questionsToSort));
+            setSortedQuestions(sortGroup(questionsToProcess));
         }
         
         setCurrentQuestionIndex(0);
 
-    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, shuffleTrigger]);
+    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, shuffleTrigger, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
 
     const currentQuestion = sortedQuestions[currentQuestionIndex];
@@ -726,9 +737,9 @@ export const NotebookDetailView: React.FC<{
     
     if (!currentQuestion) {
         return (
-            <div>
+            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
                 <button onClick={onBack} className="mb-4 text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
-                <p>Nenhuma questão encontrada neste caderno ou as questões estão sendo carregadas.</p>
+                <p>Nenhuma questão encontrada para os filtros selecionados.</p>
             </div>
         );
     }
@@ -801,6 +812,12 @@ export const NotebookDetailView: React.FC<{
                     <button title="Mais Recentes" onClick={() => setQuestionSortOrder('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => { setQuestionSortOrder('random'); setShuffleTrigger(c => c + 1); }} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
                 </div>
+                 <div className="flex items-center gap-2">
+                    <span className="font-semibold">Filtrar:</span>
+                    <button title="Mostrar apenas questões erradas" onClick={() => setShowWrongOnly(prev => !prev)} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                        <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} />
+                    </button>
+                </div>
                 {notebook === 'all' && (
                     <div className="flex items-center gap-2">
                         <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
@@ -828,9 +845,13 @@ export const NotebookDetailView: React.FC<{
 
                     if (isCompleted) {
                         cursorClass = "cursor-default";
-                        if (isCorrect) optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
-                        else if (isWrong && isSelected) optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
-                        else optionClass = "bg-background-light dark:bg-background-dark opacity-60";
+                        if (isCorrect) {
+                            optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
+                        } else if (isWrong) {
+                            optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
+                        } else {
+                            optionClass = "bg-background-light dark:bg-background-dark opacity-60";
+                        }
                     } else {
                         if (isWrong) {
                              optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500 opacity-60";
